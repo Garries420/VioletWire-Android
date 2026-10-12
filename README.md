@@ -36,9 +36,6 @@
 
 1. If you do not already have an app for opening <code>.APK</code> files, try [Files by Google](https://play.google.com/store/apps/details?id=com.google.android.apps.nbu.files), made by Google LLC.
 2. Download the VioletWire Android <code>.APK</code> from the [latest GitHub release](https://github.com/Garries420/VioletWire-Android/releases/latest).
-
-   [![Latest GitHub release](docs/assets/download.svg)](https://github.com/Garries420/VioletWire-Android/releases/latest)
-
 3. Open the downloaded <code>.APK</code> in your file manager and tap **Install**. If Android asks, allow that app to install apps from this source.
 
 > [!IMPORTANT]
@@ -51,12 +48,12 @@
 
 VioletWire Android brings together [React](https://github.com/facebook/react) and [Capacitor](https://github.com/ionic-team/capacitor) for its interface and Android integration. [AndroidX Media3 / ExoPlayer](https://github.com/androidx/media) handles native video playback, background playback and VOD downloads. Emotes come from [7TV](https://7tv.app/), [FrankerFaceZ](https://www.frankerfacez.com/) and [BetterTTV](https://betterttv.com/), alongside Twitch's own emotes.
 
-The app's stream resolvers connect directly to Twitch and Kick. During Twitch ads, the temporary fallback can use the independently operated [Luminous](https://github.com/AlyoshaVasilieva/luminous-ttv) and [Perfprod](https://wiki.cdn-perfprod.com/) proxy services. [Xtra](https://github.com/crackededed/Xtra) provided Android UI and public protocol references; VioletWire Android's implementations were developed independently.
+The app's stream resolvers connect directly to Twitch and Kick. During Twitch ads, the temporary fallback can use the independently operated [Luminous](https://github.com/AlyoshaVasilieva/luminous-ttv) and [Perfprod](https://github.com/younesaassila/ttv-lol-pro#credits) proxy services. [Xtra](https://github.com/crackededed/Xtra) provided Android UI and public protocol references; VioletWire Android's implementations were developed independently.
 
 Additional shared UI components use [hls.js](https://github.com/video-dev/hls.js), [Lucide](https://lucide.dev/), [Inter](https://rsms.me/inter/) and [flag-icons](https://github.com/lipis/flag-icons). Their licences and attribution are listed in [third-party notices](THIRD_PARTY_NOTICES.md).
 
 **Original VioletWire:** Created by [Lucaboox](https://github.com/lucaboox). Visit the [original VioletWire project](https://github.com/lucaboox/VioletWire).
 
-**Android fork:** [Garries420](https://github.com/Garries420). Development assistance from [OpenAI Codex](https://github.com/openai/codex).
+**Android fork:** [Garries420](https://github.com/Garries420).
 
 VioletWire Android continues under [GPL-3.0-or-later](LICENSE). [Build instructions](docs/BUILDING.md).

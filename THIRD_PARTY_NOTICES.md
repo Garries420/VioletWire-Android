@@ -44,7 +44,7 @@ The original licence is included in `docs/licenses/7tv-extension.txt`.
 Android resolves Twitch and Kick streams directly using this fork's protocol
 implementations. Temporary Twitch ad fallback uses independently operated
 [Luminous](https://github.com/AlyoshaVasilieva/luminous-ttv) and
-[Perfprod](https://wiki.cdn-perfprod.com/) endpoints. These servers are external
+[Perfprod](https://github.com/younesaassila/ttv-lol-pro#credits) endpoints. These servers are external
 services rather than bundled software.
 
 [Xtra](https://github.com/crackededed/Xtra), licensed AGPL-3.0, was used as a UI,
