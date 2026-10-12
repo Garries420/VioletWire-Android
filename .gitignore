@@ -15,3 +15,11 @@ android/app/src/main/assets/
 android/capacitor-cordova-android-plugins/
 .idea/
 *.iml
+
+# Local development evidence and private test sources
+artifacts/
+.reference/
+AGENTS.md
+**/*.test.*
+android/app/src/test/
+android/app/src/androidTest/
