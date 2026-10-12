@@ -1,0 +1,48 @@
+name: Android build
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'android/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - 'capacitor.config.ts'
+      - 'vite.android.config.ts'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Check Android TypeScript
+        run: npm run typecheck
+      - name: Build and sync Android interface
+        run: npm run android:sync
+      - name: Install Android SDK components
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Build APK and run Android lint
+        run: |
+          chmod +x android/gradlew
+          android/gradlew -p android :app:assembleDebug :app:lintDebug --no-daemon

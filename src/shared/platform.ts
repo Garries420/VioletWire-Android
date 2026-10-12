@@ -1,0 +1,186 @@
+import { z } from "zod";
+import type {
+  BrowseCategory,
+  BrowseStream,
+  BrowsePage,
+  ChatUserProfile,
+} from "./twitch";
+import type { TwitchPinnedChatMessage } from "./twitch";
+
+/**
+ * VioletWire watches more than one service. Twitch remains the default so
+ * every stored preference, favourite, and multistream tile written before Kick
+ * existed keeps working without a migration.
+ */
+export const platformSchema = z.enum(["twitch", "kick"]);
+export type Platform = z.infer<typeof platformSchema>;
+
+export const DEFAULT_PLATFORM: Platform = "twitch";
+
+export const PLATFORM_LABELS: Record<Platform, string> = {
+  twitch: "Twitch",
+  kick: "Kick",
+};
+
+/**
+ * Twitch logins are `[a-z0-9_]`, but Kick slugs also allow hyphens and are
+ * longer, so each service validates against its own rule rather than a single
+ * permissive one that would let bad Twitch names through.
+ */
+const TWITCH_LOGIN = /^[a-z0-9_]{1,25}$/;
+const KICK_SLUG = /^[a-z0-9_-]{1,32}$/;
+
+export function isValidChannelName(platform: Platform, login: string): boolean {
+  return platform === "kick" ? KICK_SLUG.test(login) : TWITCH_LOGIN.test(login);
+}
+
+/** A channel is only identified by its name together with the service it is on. */
+export interface PlatformChannel {
+  platform: Platform;
+  login: string;
+}
+
+export const platformChannelSchema = z
+  .object({
+    platform: platformSchema,
+    login: z.string().min(1).max(32).toLowerCase(),
+  })
+  .refine((value) => isValidChannelName(value.platform, value.login), {
+    message: "Enter a valid channel name for the selected service.",
+  });
+
+/**
+ * Single-string form for the places that key by channel: multistream tile
+ * targets, chat buffers, emote caches. Twitch keeps its bare login so existing
+ * stored values keep resolving.
+ */
+export function channelKey(platform: Platform, login: string): string {
+  return platform === DEFAULT_PLATFORM ? login : `${platform}:${login}`;
+}
+
+export function parseChannelKey(key: string): PlatformChannel {
+  const separator = key.indexOf(":");
+  if (separator === -1) return { platform: DEFAULT_PLATFORM, login: key };
+
+  const platform = platformSchema.safeParse(key.slice(0, separator));
+  if (!platform.success) return { platform: DEFAULT_PLATFORM, login: key };
+  return { platform: platform.data, login: key.slice(separator + 1) };
+}
+
+/**
+ * Validates the single-string channel form crossing IPC. Twitch's own schema
+ * stays in place for calls that reach Helix, which needs a bare login and
+ * accepts channel URLs; this one only has to recognise what the players and
+ * chat key themselves by.
+ */
+export const channelKeySchema = z
+  .string()
+  .max(40)
+  .transform((value) => value.trim().toLowerCase())
+  .superRefine((value, context) => {
+    const { platform, login } = parseChannelKey(value);
+    if (!isValidChannelName(platform, login)) {
+      context.addIssue({ code: "custom", message: "Enter a valid channel name." });
+    }
+  });
+
+/** The channel's page on its own service, used for Streamlink and browser links. */
+export function channelUrl(platform: Platform, login: string): string {
+  return platform === "kick"
+    ? `https://kick.com/${login}`
+    : `https://www.twitch.tv/${login}`;
+}
+
+/**
+ * Streamlink's per-plugin options. Twitch takes a codec list because its
+ * transcodes vary; Kick is Amazon IVS and only exposes the low-latency switch.
+ */
+export function streamlinkPlatformArguments(platform: Platform): string[] {
+  return platform === "kick"
+    ? [
+        "--kick-low-latency",
+        // The Kick plugin otherwise launches a headless Chromium to solve a JS
+        // challenge. Supplying a session cookie makes that unnecessary, and
+        // disabling it turns a missing browser into a clear failure rather than
+        // a stall.
+        "--webbrowser=no",
+      ]
+    : ["--twitch-low-latency", "--twitch-supported-codecs", "h264,h265,av1"];
+}
+
+/**
+ * A Kick channel as the renderer sees it. Search results carry less than the
+ * channel endpoint does: Kick returns no viewer count or stream title there.
+ */
+export interface KickChannelResult {
+  id: string;
+  slug: string;
+  displayName: string;
+  profileImageUrl: string;
+  isLive: boolean;
+  category?: string;
+  viewerCount: number;
+}
+
+export interface KickChannelDetails extends KickChannelResult {
+  chatroomId?: string;
+  following?: boolean;
+  subscriberBadges?: { months: number; imageUrl: string }[];
+  /** Kick's user id, used to look the channel up on 7TV. */
+  userId?: string;
+  thumbnailUrl?: string;
+  title?: string;
+  startedAt?: string;
+}
+
+export interface KickUserAccount {
+  id: string;
+  username: string;
+  profileImageUrl: string;
+}
+
+export interface KickEmoteAsset {
+  id: string;
+  name: string;
+  imageUrl: string;
+  subscribersOnly: boolean;
+}
+
+export interface KickEmoteGroup {
+  id: string;
+  name: string;
+  emotes: KickEmoteAsset[];
+}
+
+export type KickAuthState =
+  | { status: "signed-in"; account: KickUserAccount }
+  | { status: "signed-out"; account: null; reason?: "expired" }
+  | { status: "unavailable"; account: null };
+
+export interface KickChatColorState {
+  color: string;
+  canUpdate: boolean;
+}
+
+export interface KickApi {
+  search(query: string): Promise<KickChannelResult[]>;
+  getChannel(slug: string): Promise<KickChannelDetails | null>;
+  getUser(): Promise<KickUserAccount | null>;
+  getAuthState(): Promise<KickAuthState>;
+  signIn(): Promise<KickUserAccount | null>;
+  signOut(): Promise<void>;
+  getFollowedChannels(): Promise<KickChannelDetails[]>;
+  getEmoteSets(slug: string): Promise<KickEmoteGroup[]>;
+  getChatUserProfile(channel: string, login: string): Promise<ChatUserProfile>;
+  getPinnedChatMessage(channelId: string): Promise<TwitchPinnedChatMessage | null>;
+  getChatColor(): Promise<KickChatColorState>;
+  updateChatColor(color: string): Promise<KickChatColorState>;
+  setFollowing(slug: string, follow: boolean): Promise<void>;
+  openWindow(slug: string): Promise<void>;
+  // Browse: Kick's own categories and the live channels within one. These reuse
+  // the Twitch browse shapes so the renderer's grid can render either service.
+  // A category's `id` carries its Kick slug, which is what getCategoryStreams
+  // takes. The cursor is an opaque page token.
+  getCategories(query: string, cursor?: string): Promise<BrowsePage<BrowseCategory>>;
+  getCategoryStreams(slug: string, cursor?: string): Promise<BrowsePage<BrowseStream>>;
+}
