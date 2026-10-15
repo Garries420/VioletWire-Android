@@ -24,7 +24,7 @@ final class StreamControls extends FrameLayout {
     private final Runnable tick = new Runnable() {
         public void run() { updateUptime(); if (getVisibility() == VISIBLE) handler.postDelayed(this, 1000); }
     };
-    private final ImageButton follow, pause, mute, refresh, sizing, fullscreen, more;
+    private final ImageButton follow, subscribe, pause, compressor, refresh, sizing, fullscreen, more;
     private final FrameLayout bottom;
     private final LinearLayout liveStats, seekRow;
     private final android.widget.SeekBar timeline;
@@ -44,13 +44,14 @@ final class StreamControls extends FrameLayout {
         top.addView(button(R.drawable.player_back, "Back to browsing", () -> actions.action("back")));
         title = text("", 14); title.setContentDescription("Open channel profile"); title.setOnClickListener(v -> actions.action("profile")); top.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
         follow = button(R.drawable.player_heart_outline, "Follow channel", () -> actions.action("follow")); top.addView(follow);
+        subscribe = button(R.drawable.player_subscribe, "Subscribe to channel", () -> actions.action("subscribe")); top.addView(subscribe);
         sizing = button(R.drawable.player_sizing, "Video size: Fit. Change video size", () -> actions.action("sizing")); top.addView(sizing);
         more = button(R.drawable.player_more, "More stream options", this::showOptions); top.addView(more);
         top.addView(button(R.drawable.player_settings, "Stream settings", () -> actions.action("settings")));
         LayoutParams topParams = new LayoutParams(-1, dp(48), Gravity.TOP); addView(top, topParams);
         bottom = new FrameLayout(context); bottom.setBackgroundColor(0xaa09090b);
         pause = button(R.drawable.player_pause, "Pause stream", () -> actions.action("pause")); bottom.addView(pause, bottomParams(44, Gravity.START, 0));
-        mute = button(R.drawable.player_volume, "Stream volume", () -> actions.action("volume")); bottom.addView(mute, bottomParams(44, Gravity.START, 44));
+        compressor = button(R.drawable.player_compressor, "Enable audio compressor", () -> actions.action("compressor")); bottom.addView(compressor, bottomParams(44, Gravity.START, 44));
         refresh = button(R.drawable.player_refresh, "Refresh stream to live", () -> actions.action("refresh")); bottom.addView(refresh, bottomParams(44, Gravity.START, 88));
         LinearLayout stats = new LinearLayout(context); liveStats = stats; stats.setGravity(Gravity.CENTER);
         runtime = new LinearLayout(context); runtime.setGravity(Gravity.CENTER_VERTICAL);
@@ -133,6 +134,11 @@ final class StreamControls extends FrameLayout {
         follow.setContentDescription(followed ? "Following channel" : "Follow channel"); follow.setEnabled(!pending);
         follow.setColorFilter(followed ? 0xffc4a7ff : Color.WHITE);
     }
+    void compression(boolean enabled) {
+        compressor.setColorFilter(enabled ? 0xff9147ff : Color.WHITE);
+        compressor.setSelected(enabled);
+        compressor.setContentDescription(enabled ? "Disable audio compressor" : "Enable audio compressor");
+    }
     void startedAt(long value) { startedAt = value; updateUptime(); }
     void latency(String value) { latency.setText(value); }
     private static String time(long millis) { long s = millis / 1000; return String.format(java.util.Locale.ROOT, "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60); }
@@ -151,7 +157,6 @@ final class StreamControls extends FrameLayout {
         boolean changed = this.paused != paused || chatOnly != onlyChat;
         this.paused = paused;
         pause.setImageResource(paused ? R.drawable.player_play : R.drawable.player_pause); pause.setContentDescription(paused ? "Play stream" : "Pause stream");
-        mute.setImageResource(muted ? R.drawable.player_muted : R.drawable.player_volume); mute.setContentDescription("Stream volume: " + (muted ? 0 : value) + "%");
         chatOnly = onlyChat; bottom.setVisibility(onlyChat ? GONE : VISIBLE);
         if (changed && getVisibility() == VISIBLE) scheduleHide();
     }

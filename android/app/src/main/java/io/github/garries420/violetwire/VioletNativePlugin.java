@@ -136,6 +136,9 @@ public class VioletNativePlugin extends Plugin {
             int nextOffset = Math.max(2000, Math.min(10000, call.getInt("targetOffsetMs", 2500)));
             if (controls != null) controls.hideDelay(controlsHideDelay);
             if (view != null) view.setControllerShowTimeoutMs(controlsHideDelay);
+            PlaybackService.compression(call.getBoolean("audioCompression", false));
+            if (controls != null) controls.compression(PlaybackService.compression());
+            report();
             adProxyFallback = call.getBoolean("adProxyFallback", true);
             if (!adProxyFallback && adFallback != null) { stopAdFallback(); activeProxy = null; if (player != null && source != null) { player.setMediaSource(mediaSource()); applyQuality(); player.prepare(); player.setPlayWhenReady(!userPaused); } }
             if (!vodPlayback && nextOffset != targetOffsetMs && player != null && source != null && playbackError == null) {
@@ -195,6 +198,17 @@ public class VioletNativePlugin extends Plugin {
         }
         getActivity().runOnUiThread(() -> {
             try {
+                if (call.getBoolean("browser", false)) {
+                    Intent generic = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.example.com/"));
+                    generic.addCategory(Intent.CATEGORY_BROWSABLE);
+                    android.content.pm.ResolveInfo resolved = getContext().getPackageManager().resolveActivity(generic, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY);
+                    String browserPackage = resolved != null && resolved.activityInfo != null && !"android".equals(resolved.activityInfo.packageName)
+                        ? resolved.activityInfo.packageName : CustomTabsClient.getPackageName(getContext(), null);
+                    if (browserPackage == null) throw new ActivityNotFoundException();
+                    Intent browserIntent = new Intent(Intent.ACTION_VIEW, url).addCategory(Intent.CATEGORY_BROWSABLE).setPackage(browserPackage);
+                    getActivity().startActivity(browserIntent);
+                    call.resolve(); return;
+                }
                 // Launch from MainActivity directly. No blank intermediate controller
                 // activity can remain above VioletWire when the authorization tab returns.
                 CustomTabsIntent tab = new CustomTabsIntent.Builder().setShowTitle(true).build();
@@ -204,7 +218,7 @@ public class VioletNativePlugin extends Plugin {
                 else getActivity().startActivity(new Intent(Intent.ACTION_VIEW, url));
                 call.resolve();
             } catch (ActivityNotFoundException error) {
-                call.reject("Install or enable a browser to open Twitch authorization.");
+                call.reject("Install or enable a browser to open this page.");
             }
         });
     }
@@ -673,7 +687,7 @@ public class VioletNativePlugin extends Plugin {
                 case "set-muted": muted = call.getBoolean("muted", false); player.setVolume(muted ? 0 : volume); break;
                 case "set-volume": volume = Math.max(0, Math.min(100, call.getInt("value", 100))) / 100f; player.setVolume(muted ? 0 : volume); break;
                 case "go-live": player.seekToDefaultPosition(); userPaused = false; player.play(); break;
-                case "set-compressor": call.reject("Audio compression is not implemented on Android."); return;
+                case "set-compressor": PlaybackService.compression(call.getBoolean("enabled", false)); if (controls != null) controls.compression(PlaybackService.compression()); break;
                 default: call.reject("Unknown player command"); return;
             }
             report(); call.resolve();
@@ -816,15 +830,18 @@ public class VioletNativePlugin extends Plugin {
         long liveTarget = PlaybackService.liveTargetOffsetMs();
         values.put("Live target", vodPlayback ? "VOD" : liveTarget == C.TIME_UNSET ? "—" : String.format(java.util.Locale.ROOT, "%.2fs", liveTarget / 1000d));
         values.put("Media transport", downloadId != null ? "Saved on device" : activeProxy != null ? "Temporary ad proxy" : playbackChannel != null && playbackChannel.startsWith("kick:") ? "Direct Kick CDN" : "Direct Twitch CDN");
+        values.put("Audio compressor", PlaybackService.compression() ? "Enabled" : "Disabled");
+        values.put("Compressed PCM frames", String.valueOf(PlaybackService.compressedFrames()));
         values.put("Playback engine", "AndroidX Media3 / ExoPlayer"); return values;
     }
     private void report() {
+        if (controls != null) controls.compression(PlaybackService.compression());
         JSObject state = new JSObject();
         String status = playbackError != null ? "error" : player == null ? "idle" :
             player.getPlaybackState() == Player.STATE_READY ? "playing" : player.getPlaybackState() == Player.STATE_ENDED ? "stopped" : "starting";
         state.put("status", status); state.put("paused", userPaused); state.put("muted", muted);
         state.put("vod", vodPlayback);
-        state.put("volume", Math.round(volume * 100)); state.put("quality", selectedQuality); state.put("compressorEnabled", false);
+        state.put("volume", Math.round(volume * 100)); state.put("quality", selectedQuality); state.put("compressorEnabled", PlaybackService.compression());
         state.put("behindLive", !vodPlayback && player != null && player.getCurrentLiveOffset() != C.TIME_UNSET && player.getCurrentLiveOffset() > 10000);
         if (playbackError != null) state.put("error", playbackError);
         if (controls != null) { controls.state(userPaused, muted, Math.round(volume * 100), "chat_only".equals(selectedQuality)); controls.metadata(channelName, viewerCount, followed, followPending); controls.startedAt(vodPlayback ? 0 : streamStartedAt); controls.fullscreen(fullscreenActive); }

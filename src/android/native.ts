@@ -20,13 +20,13 @@ interface VioletNativePlugin {
   vodDownloadControl(options: { id: string; action: "pause" | "resume" | "delete" }): Promise<void>;
   downloadedChat(options: { id: string; offset: number }): Promise<{ nodes: unknown[] }>;
   downloadedAssets(options: { id: string }): Promise<{ assets?: VodChatAssets; chatState?: string }>;
-  configure(options: { controlsHideDelay: number; targetOffsetMs: number; dataSaver: boolean; adProxyFallback: boolean }): Promise<void>;
+  configure(options: { audioCompression: boolean; controlsHideDelay: number; targetOffsetMs: number; dataSaver: boolean; adProxyFallback: boolean }): Promise<void>;
   emoteCacheUsage(): Promise<{ bytes: number; emotes: number }>;
   clearEmoteCache(): Promise<void>;
   keyboard(options: { visible: boolean }): Promise<void>;
   pictureInPicture(): Promise<void>;
   metadata(options: { channel: string; viewers: number; startedAt: number; followed: boolean; pending: boolean; chatVisible: boolean }): Promise<void>;
-  openExternal(options: { url: string }): Promise<void>;
+  openExternal(options: { url: string; browser?: boolean }): Promise<void>;
   copyText(options: { text: string }): Promise<void>;
   secureGet(options?: { record: string }): Promise<{ value: string | null }>;
   secureSet(options: { value: string; record?: string }): Promise<void>;
@@ -86,12 +86,12 @@ interface VioletNativePlugin {
 
 export const VioletNative = registerPlugin<VioletNativePlugin>("VioletNative");
 
-export async function openExternal(url: string): Promise<void> {
+export async function openExternal(url: string, browser = false): Promise<void> {
   const parsed = new URL(url);
   if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
     throw new Error("Only secure web links can be opened.");
   }
-  await VioletNative.openExternal({ url: parsed.toString() });
+  await VioletNative.openExternal({ url: parsed.toString(), browser });
 }
 
 /** Native HTTP avoids WebView CORS while retaining HTTPS and explicit provider origins. */

@@ -1,3 +1,4 @@
+import { profileUrl, subscriptionUrl } from "./channel-links";
 import { Preferences } from "@capacitor/preferences";
 import { TwitchService } from "../services/twitch-service";
 import { KickPublicService } from "../services/kick-public-service";
@@ -228,6 +229,7 @@ let fullscreen = false;
 
 function configureNativePreferences(): Promise<void> {
   return VioletNative.configure({
+    audioCompression: preferences.audioCompression,
     controlsHideDelay: preferences.controlsHideDelay,
     targetOffsetMs: preferences.playbackLatencyMode === "ultra-low" ? 2500 : 6000,
     dataSaver: preferences.dataSaver,
@@ -272,11 +274,10 @@ export async function initializePlatform(): Promise<void> {
       /* A corrupt preference record does not prevent startup. */
     }
   }
-  // Android has one native player and no desktop audio compressor.
+  // Android always uses the native player; audio compression is supported in its PCM pipeline.
   preferences = {
     ...preferences,
     preferredPlayerMode: "native",
-    audioCompression: false,
     chatOnLeft: false,
     genericLinkPreviewsEnabled: false,
   };
@@ -303,10 +304,7 @@ export async function initializePlatform(): Promise<void> {
 }
 
 export const androidUpdates = new AndroidUpdateService();
-const pageUrl = (channel: string) => {
-  const target = parseChannelKey(channelKeySchema.parse(channel));
-  return channelUrl(target.platform, target.login);
-};
+
 
 /** Implements the existing renderer contract. Its historical name is kept for desktop compatibility. */
 export const androidPlatform: DesktopApi = {
@@ -428,7 +426,6 @@ export const androidPlatform: DesktopApi = {
             ...preferences,
             ...parsed,
             preferredPlayerMode: "native",
-            audioCompression: false,
             chatOnLeft: false,
             genericLinkPreviewsEnabled: false,
           });
@@ -513,17 +510,14 @@ export const androidPlatform: DesktopApi = {
     openChannelAction: (channel, action) =>
       action === "clip"
         ? unsupported("Embedded clip creation")
-        : openExternal(pageUrl(channel)),
+        : openExternal(profileUrl(channel), true),
     openSubscription: (channel) =>
-      openExternal(`${pageUrl(channel)}/subscribe`),
+      openExternal(subscriptionUrl(channel), true),
     getNativeAvailability: async () => ({ available: true }),
     getNativeQualities: async () => (await VioletNative.qualities()).items,
     setNativeQuality: (_channel, quality) =>
       VioletNative.quality({ value: quality }),
     controlNative(command) {
-      // Shared renderer sends its default compressor state on every open.
-      // Disabling an unavailable effect is already satisfied on Android.
-      if (command.command === "set-compressor" && !command.enabled) return;
       void VioletNative.control(command).catch((error) =>
         window.dispatchEvent(
           new CustomEvent("android-notice", { detail: String(error) }),

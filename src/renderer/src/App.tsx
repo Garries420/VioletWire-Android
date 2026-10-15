@@ -3057,6 +3057,8 @@ export function App() {
     const restore = () => restoreMiniPlayer();
     const streamBack = () => { void navigateTo("home"); };
     const follow = () => { void handleFollow(); };
+    const subscribe = () => { void openSubscribePage(); };
+    const compressor = () => { void window.desktop.preferences.update({ audioCompression: !nativeState.compressorEnabled }).catch(() => setNotice("Unable to change audio compression.")); };
     const chatMode = () => setChatLayout("side");
     const toggleMobileChat = () => {
       setEmotePickerOpen(false); setChatUserListOpen(false);
@@ -3082,6 +3084,8 @@ export function App() {
     window.addEventListener("android-restore-player", restore);
     window.addEventListener("android-stream-back", streamBack);
     window.addEventListener("android-stream-follow", follow);
+    window.addEventListener("android-stream-subscribe", subscribe);
+    window.addEventListener("android-stream-compressor", compressor);
     window.addEventListener("android-stream-chat-mode", chatMode);
     window.addEventListener("android-stream-chat-toggle", toggleMobileChat);
     window.addEventListener("android-stream-viewers", mobileViewers);
@@ -3099,6 +3103,8 @@ export function App() {
       window.removeEventListener("android-restore-player", restore);
       window.removeEventListener("android-stream-back", streamBack);
       window.removeEventListener("android-stream-follow", follow);
+      window.removeEventListener("android-stream-subscribe", subscribe);
+      window.removeEventListener("android-stream-compressor", compressor);
       window.removeEventListener("android-stream-chat-mode", chatMode);
       window.removeEventListener("android-stream-chat-toggle", toggleMobileChat);
       window.removeEventListener("android-stream-viewers", mobileViewers);
@@ -3315,6 +3321,13 @@ export function App() {
       } finally {
         setFollowPending(false);
       }
+      return;
+    }
+    if (isAndroid) {
+      try {
+        await window.desktop.player.openChannelAction(activeChannel, "channel");
+        setNotice("Use Follow on the Twitch profile page. Return to VioletWire when finished.");
+      } catch { setNotice("Unable to open the Twitch profile in your browser."); }
       return;
     }
     await window.desktop.player.openChannelAction(activeChannel, "channel");

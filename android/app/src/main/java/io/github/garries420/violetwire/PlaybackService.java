@@ -14,6 +14,7 @@ import androidx.media3.session.MediaSessionService;
 @OptIn(markerClass = UnstableApi.class)
 public final class PlaybackService extends MediaSessionService {
     private static ExoPlayer sharedPlayer;
+    private static final StreamCompressor compressor = new StreamCompressor();
     private static PlaybackService activeService;
     private static androidx.media3.exoplayer.DefaultLivePlaybackSpeedControl liveSpeedControl;
     private MediaSession session;
@@ -22,7 +23,16 @@ public final class PlaybackService extends MediaSessionService {
     public static ExoPlayer getPlayer(Context context) {
         if (sharedPlayer == null) {
             liveSpeedControl = LivePlaybackTuning.speedControl();
-            sharedPlayer = new ExoPlayer.Builder(context.getApplicationContext())
+            androidx.media3.exoplayer.DefaultRenderersFactory renderers = new androidx.media3.exoplayer.DefaultRenderersFactory(context.getApplicationContext()) {
+                @Override protected androidx.media3.exoplayer.audio.AudioSink buildAudioSink(Context ctx, boolean floatOutput, boolean playbackParams) {
+                    return new androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(ctx)
+                        .setAudioProcessors(new androidx.media3.common.audio.AudioProcessor[] { new CompressorAudioProcessor(compressor) })
+                        // Media3's float-output shortcut skips custom PCM processors.
+                        .setEnableFloatOutput(false).setEnableAudioTrackPlaybackParams(playbackParams)
+                        .build();
+                }
+            };
+            sharedPlayer = new ExoPlayer.Builder(context.getApplicationContext(), renderers)
                 .setLivePlaybackSpeedControl(liveSpeedControl)
                 .setLoadControl(LivePlaybackTuning.loadControl()).build();
             sharedPlayer.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
@@ -32,6 +42,9 @@ public final class PlaybackService extends MediaSessionService {
         }
         return sharedPlayer;
     }
+    static void compression(boolean enabled) { compressor.enabled(enabled); }
+    static boolean compression() { return compressor.enabled(); }
+    static long compressedFrames() { return compressor.processedFrames(); }
     static long liveTargetOffsetMs() { return liveSpeedControl == null ? androidx.media3.common.C.TIME_UNSET : androidx.media3.common.util.Util.usToMs(liveSpeedControl.getTargetLiveOffsetUs()); }
 
     @Override public void onCreate() {
