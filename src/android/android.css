@@ -951,3 +951,18 @@
 .android .chat-resizing .chat-resize-handle::before {
   opacity: 1;
 }
+
+/* Brief guidance for video quality, using the existing settings palette. */
+.android .data-saver-backdrop { z-index: 2100; padding: 20px; }
+.android .data-saver-info { width: min(420px, 100%); text-align: left; }
+.android .data-saver-info h3 { margin: 0 0 14px; line-height: 1.35; }
+.android .data-saver-info p { line-height: 1.55; }
+.android .data-saver-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 22px; }
+.android .default-quality-highlight { animation: quality-guidance 1.8s ease-in-out; }
+@keyframes quality-guidance {
+  0%, 100% { box-shadow: 0 0 0 2px #9147ff00; }
+  40%, 55% { box-shadow: 0 0 0 2px #a970ff, 0 0 18px #9147ff55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .android .default-quality-highlight { animation-timing-function: steps(1); }
+}

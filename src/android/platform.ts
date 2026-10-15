@@ -337,7 +337,12 @@ export const androidPlatform: DesktopApi = {
   },
   kick: {
     search: (query) => kick.search(query),
-    getChannel: (slug) => kick.getChannel(slug),
+    getChannel: async (slug) => {
+      const [channel, viewer] = await Promise.all([
+        kick.getChannel(slug), accounts.viewer(slug).catch(() => undefined),
+      ]);
+      return channel ? { ...channel, ...(viewer?.following === undefined ? {} : { following: viewer.following }), subscribed: viewer?.subscribed } : null;
+    },
     getCategories: (query, cursor) => kick.getCategories(query, cursor),
     getCategoryStreams: (id, cursor) => kick.getCategoryStreams(id, cursor),
     getUser: () => accounts.getUser(),

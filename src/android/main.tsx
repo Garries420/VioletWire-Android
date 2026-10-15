@@ -59,7 +59,7 @@ async function start() {
     );
   });
   window.addEventListener("android-player-metadata", (event) => {
-    void VioletNative.metadata((event as CustomEvent<{ channel: string; viewers: number; startedAt: number; followed: boolean; pending: boolean; chatVisible: boolean }>).detail);
+    void VioletNative.metadata((event as CustomEvent<{ channel: string; viewers: number; startedAt: number; followed: boolean; subscribed: boolean; pending: boolean; chatVisible: boolean }>).detail);
   });
   ReactDOM.createRoot(document.getElementById("root")!).render(
     <React.StrictMode>

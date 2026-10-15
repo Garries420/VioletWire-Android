@@ -85,7 +85,7 @@ public class VioletNativePlugin extends Plugin {
     private String channelName = "Stream";
     private long viewerCount;
     private long streamStartedAt;
-    private boolean followed, followPending;
+    private boolean followed, subscribed, followPending;
     private boolean pipActive;
     private boolean enteredPip;
     private boolean stopped;
@@ -791,8 +791,8 @@ public class VioletNativePlugin extends Plugin {
         getActivity().runOnUiThread(() -> {
             streamStartedAt = call.getLong("startedAt", 0L);
             channelName = call.getString("channel", "Stream"); viewerCount = call.getInt("viewers", 0);
-            followed = call.getBoolean("followed", false); followPending = call.getBoolean("pending", false);
-            if (controls != null) { controls.chatVisible(call.getBoolean("chatVisible", true)); controls.metadata(channelName, viewerCount, followed, followPending); controls.startedAt(vodPlayback ? 0 : streamStartedAt); }
+            followed = call.getBoolean("followed", false); subscribed = call.getBoolean("subscribed", false); followPending = call.getBoolean("pending", false);
+            if (controls != null) { controls.chatVisible(call.getBoolean("chatVisible", true)); controls.metadata(channelName, viewerCount, followed, subscribed, followPending); controls.startedAt(vodPlayback ? 0 : streamStartedAt); }
             call.resolve();
         });
     }
@@ -831,6 +831,7 @@ public class VioletNativePlugin extends Plugin {
         values.put("Live target", vodPlayback ? "VOD" : liveTarget == C.TIME_UNSET ? "—" : String.format(java.util.Locale.ROOT, "%.2fs", liveTarget / 1000d));
         values.put("Media transport", downloadId != null ? "Saved on device" : activeProxy != null ? "Temporary ad proxy" : playbackChannel != null && playbackChannel.startsWith("kick:") ? "Direct Kick CDN" : "Direct Twitch CDN");
         values.put("Audio compressor", PlaybackService.compression() ? "Enabled" : "Disabled");
+        values.put("Compressor gain", String.format(java.util.Locale.ROOT, "%.1f dB", PlaybackService.compressorGainDb()));
         values.put("Compressed PCM frames", String.valueOf(PlaybackService.compressedFrames()));
         values.put("Playback engine", "AndroidX Media3 / ExoPlayer"); return values;
     }
@@ -844,7 +845,7 @@ public class VioletNativePlugin extends Plugin {
         state.put("volume", Math.round(volume * 100)); state.put("quality", selectedQuality); state.put("compressorEnabled", PlaybackService.compression());
         state.put("behindLive", !vodPlayback && player != null && player.getCurrentLiveOffset() != C.TIME_UNSET && player.getCurrentLiveOffset() > 10000);
         if (playbackError != null) state.put("error", playbackError);
-        if (controls != null) { controls.state(userPaused, muted, Math.round(volume * 100), "chat_only".equals(selectedQuality)); controls.metadata(channelName, viewerCount, followed, followPending); controls.startedAt(vodPlayback ? 0 : streamStartedAt); controls.fullscreen(fullscreenActive); }
+        if (controls != null) { controls.state(userPaused, muted, Math.round(volume * 100), "chat_only".equals(selectedQuality)); controls.metadata(channelName, viewerCount, followed, subscribed, followPending); controls.startedAt(vodPlayback ? 0 : streamStartedAt); controls.fullscreen(fullscreenActive); }
         notifyListeners("playerState", state);
         updatePictureInPicture();
     }

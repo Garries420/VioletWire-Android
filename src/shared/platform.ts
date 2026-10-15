@@ -125,6 +125,7 @@ export interface KickChannelResult {
 export interface KickChannelDetails extends KickChannelResult {
   chatroomId?: string;
   following?: boolean;
+  subscribed?: boolean;
   subscriberBadges?: { months: number; imageUrl: string }[];
   /** Kick's user id, used to look the channel up on 7TV. */
   userId?: string;

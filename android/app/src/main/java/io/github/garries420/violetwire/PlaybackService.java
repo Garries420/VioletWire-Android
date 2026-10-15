@@ -44,6 +44,7 @@ public final class PlaybackService extends MediaSessionService {
     }
     static void compression(boolean enabled) { compressor.enabled(enabled); }
     static boolean compression() { return compressor.enabled(); }
+    static double compressorGainDb() { return compressor.appliedGainDb(); }
     static long compressedFrames() { return compressor.processedFrames(); }
     static long liveTargetOffsetMs() { return liveSpeedControl == null ? androidx.media3.common.C.TIME_UNSET : androidx.media3.common.util.Util.usToMs(liveSpeedControl.getTargetLiveOffsetUs()); }
 

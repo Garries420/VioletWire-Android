@@ -128,11 +128,14 @@ final class StreamControls extends FrameLayout {
         optionsMenu.setOnDismissListener(this::scheduleHide);
         optionsMenu.showAsDropDown(more, 0, 0, Gravity.END);
     }
-    void metadata(String channel, long count, boolean followed, boolean pending) {
+    void metadata(String channel, long count, boolean followed, boolean subscribed, boolean pending) {
         title.setText(channel); viewers.setText(java.text.NumberFormat.getIntegerInstance().format(count));
         viewers.setContentDescription(count + " viewers"); follow.setImageResource(followed ? R.drawable.player_heart : R.drawable.player_heart_outline);
         follow.setContentDescription(followed ? "Following channel" : "Follow channel"); follow.setEnabled(!pending);
         follow.setColorFilter(followed ? 0xffc4a7ff : Color.WHITE);
+        subscribe.setImageResource(subscribed ? R.drawable.player_subscribed : R.drawable.player_subscribe);
+        subscribe.setColorFilter(subscribed ? 0xff9147ff : Color.WHITE);
+        subscribe.setContentDescription(subscribed ? "Subscribed to channel" : "Subscribe to channel");
     }
     void compression(boolean enabled) {
         compressor.setColorFilter(enabled ? 0xff9147ff : Color.WHITE);

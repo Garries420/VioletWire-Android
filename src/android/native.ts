@@ -25,7 +25,7 @@ interface VioletNativePlugin {
   clearEmoteCache(): Promise<void>;
   keyboard(options: { visible: boolean }): Promise<void>;
   pictureInPicture(): Promise<void>;
-  metadata(options: { channel: string; viewers: number; startedAt: number; followed: boolean; pending: boolean; chatVisible: boolean }): Promise<void>;
+  metadata(options: { channel: string; viewers: number; startedAt: number; followed: boolean; subscribed: boolean; pending: boolean; chatVisible: boolean }): Promise<void>;
   openExternal(options: { url: string; browser?: boolean }): Promise<void>;
   copyText(options: { text: string }): Promise<void>;
   secureGet(options?: { record: string }): Promise<{ value: string | null }>;

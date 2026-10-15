@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { kickViewerState } from "./kick-viewer";
 import type { KickAuthState, KickUserAccount } from "../shared/platform";
 import type { KickChannel } from "../services/kick-models";
 import { toIsoTimestamp } from "../services/kick-models";
@@ -120,6 +121,15 @@ export class AndroidAccountSessions {
       try { const live = await publicService.getLivestream(channel.slug); if(live?.thumbnailUrl) channel.thumbnailUrl=live.thumbnailUrl; if(live?.startedAt) channel.startedAt=live.startedAt; } catch { /* Keep other live metadata when the preview request fails. */ }
     }));
     return channels;
+  }
+  async viewer(slug: string): Promise<{ following?: boolean; subscribed?: boolean }> {
+    if (!this.kick) return { following: false, subscribed: false };
+    const session = this.kick;
+    const response = await this.request(`/api/v2/channels/${encodeURIComponent(slug)}/me`);
+    if (!response.ok) throw new Error(`Kick could not check channel membership (${response.status}).`);
+    const viewer = kickViewerState(await response.json());
+    // Never attach the previous account's entitlements after sign-out/sign-in.
+    return this.kick === session ? viewer : {};
   }
   async setFollowing(slug: string, follow: boolean): Promise<void> {
     const response = await this.request(`/api/v2/channels/${encodeURIComponent(slug)}/follow`, follow ? "POST" : "DELETE");

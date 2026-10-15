@@ -84,6 +84,7 @@ import type {
   MultiStreamPreset,
 } from "../../shared/preferences";
 import { defaultAppPreferences } from "../../shared/preferences";
+import { chatRestrictionParts } from "../../android/chat-restrictions";
 import { clampAndroidChatWidth } from "../../android/chat-width";
 import type { EmoteProvider, ProviderEmote } from "../../shared/emotes";
 import type {
@@ -675,6 +676,17 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("account");
   const [settingsSearch, setSettingsSearch] = useState("");
+  const [dataSaverInfoOpen, setDataSaverInfoOpen] = useState(false);
+  const [highlightDefaultQuality, setHighlightDefaultQuality] = useState(false);
+  const defaultQualityCard = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!settingsOpen || settingsSection !== "playback") { setHighlightDefaultQuality(false); return; }
+    if (!highlightDefaultQuality) return;
+    defaultQualityCard.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    const timer = window.setTimeout(() => setHighlightDefaultQuality(false), 1800);
+    return () => window.clearTimeout(timer);
+  }, [highlightDefaultQuality, settingsOpen, settingsSection]);
+
   const settingsSearchResults = useMemo(() => {
     const query = settingsSearch.trim().toLocaleLowerCase();
     if (!query) return [];
@@ -787,7 +799,7 @@ export function App() {
     restrictions: ChatRestrictions;
   }>({ channel: null, restrictions: NO_CHAT_RESTRICTIONS });
   const [chatInput, setChatInput] = useState("");
-  const [dismissedRestriction, setDismissedRestriction] = useState<string | null>(null);
+  const [dismissedRestrictions, setDismissedRestrictions] = useState<string[]>([]);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [openReplyThread, setOpenReplyThread] = useState<ChatMessage | null>(null);
   const [selectedChatUser, setSelectedChatUser] = useState<ChatMessage | null>(null);
@@ -2314,11 +2326,13 @@ export function App() {
     if (target.platform !== "kick") return;
 
     let cancelled = false;
+    let request = 0;
     const load = () => {
+      const generation = ++request;
       void window.desktop.kick
         .getChannel(target.login)
         .then((channel) => {
-          if (cancelled || channel === null) return;
+          if (cancelled || generation !== request || channel === null) return;
           setStreamMetadata({
             broadcasterId: channel.id,
             login: channel.slug,
@@ -2330,19 +2344,22 @@ export function App() {
             viewerCount: channel.viewerCount,
             startedAt: channel.startedAt,
             isFollowed: channel.following ?? undefined,
+            subscription: channel.subscribed === undefined ? undefined : { isSubscribed: channel.subscribed },
           });
         })
         .catch(() => undefined);
     };
     load();
+    window.addEventListener("android-stream-refresh", load);
     // Matches the Twitch refresh cadence so viewer counts and the offline
     // transition stay about as current.
     const refresh = window.setInterval(load, 30_000);
     return () => {
       cancelled = true;
       window.clearInterval(refresh);
+      window.removeEventListener("android-stream-refresh", load);
     };
-  }, [activeChannel]);
+  }, [activeChannel, kickAccount]);
 
   useEffect(() => {
     if (!activeChannel || authState.status !== "signed-in") return;
@@ -2483,16 +2500,17 @@ export function App() {
   const activeChannelFollowState = useMemo<boolean | null>(() => {
     if (!activeChannel) return null;
     const target = parseChannelKey(activeChannel);
-    if (target.platform === "kick") {
-      if (kickFollowedChannels.some((channel) => channel.slug === target.login)) return true;
-    } else if (followedChannels.some((channel) => channel.login === target.login)) {
-      return true;
-    }
-
+    if (target.platform === "kick" && kickAccount === null) return false;
     const metadataMatchesChannel =
       streamMetadata?.login.toLowerCase() === target.login.toLowerCase();
     if (metadataMatchesChannel && typeof streamMetadata.isFollowed === "boolean") {
       return streamMetadata.isFollowed;
+    }
+
+    if (target.platform === "kick") {
+      if (kickFollowedChannels.some((channel) => channel.slug === target.login)) return true;
+    } else if (followedChannels.some((channel) => channel.login === target.login)) {
+      return true;
     }
 
     // Signed-out accounts cannot have a follow relationship to resolve. For a
@@ -2501,6 +2519,9 @@ export function App() {
     return signedIn ? null : false;
   }, [activeChannel, authState.status, followedChannels, kickAccount, kickFollowedChannels, streamMetadata]);
   const activeChannelIsFollowed = activeChannelFollowState === true;
+  const activeChannelSubscribed = streamMetadata?.subscription?.isSubscribed === true && (!chatIsKick || kickAccount !== null);
+  useEffect(() => { setDismissedRestrictions([]); }, [chatChannel, kickAccount?.id]);
+
 
   useEffect(
     () =>
@@ -2951,6 +2972,7 @@ export function App() {
     setSettingsOpen(false);
     setError(null);
     setStreamMetadata(null);
+    setDismissedRestrictions([]);
     resetChatFeed();
     setReplyingTo(null);
     setEmotePickerOpen(false);
@@ -3039,7 +3061,8 @@ export function App() {
     if (!isAndroid) return;
     const back = (event: Event) => {
       if (event.defaultPrevented) return;
-      if (deviceAuthorization) { event.preventDefault(); void cancelSignIn(); }
+      if (dataSaverInfoOpen) { event.preventDefault(); setDataSaverInfoOpen(false); }
+      else if (deviceAuthorization) { event.preventDefault(); void cancelSignIn(); }
       else if (changelogOpen) { event.preventDefault(); closeChangelog(); }
       else if (settingsOpen) { event.preventDefault(); setSettingsOpen(false); }
       else if (topSearchOpen) { event.preventDefault(); setTopSearchOpen(false); }
@@ -3315,6 +3338,9 @@ export function App() {
       setFollowPending(true);
       try {
         await window.desktop.kick.setFollowing(target.login, nextFollow);
+        setStreamMetadata(current => current?.login.toLowerCase() === target.login.toLowerCase()
+          ? { ...current, isFollowed: nextFollow } : current);
+        window.dispatchEvent(new Event("android-stream-refresh"));
         setKickFollowedChannels(await window.desktop.kick.getFollowedChannels());
       } catch (reason) {
         setNotice(reason instanceof Error ? reason.message : "Could not update follow.");
@@ -3368,8 +3394,8 @@ export function App() {
     if (!chatChannel || !chatInput.trim()) return;
     const platform = parseChannelKey(chatChannel).platform;
     if (platform === "kick") {
-      setDismissedRestriction(null);
-      if (chatBlocked) { chatSender.showError("Follow this channel before sending a message."); return; }
+      interactWithChat();
+      if (chatBlocked) { chatSender.showError(chatRestrictions.followersOnly && activeChannelFollowState === false ? "Follow this channel before sending a message." : "Subscribe to this channel before sending a message."); return; }
     }
     if (platform === "kick" ? kickAccount === null : authState.status !== "signed-in") {
       chatSender.showError(
@@ -3393,38 +3419,21 @@ export function App() {
     }
   }
 
-  // The active chat restriction as a line the composer can show, and whether we
-  // are certain the viewer cannot send (followers-only while not following at
-  // all). Anything less certain is left to the server to reject.
-  const chatRestrictionLabel = useMemo(() => {
-    const parts: string[] = [];
-    // Followers-only does not apply once you follow, so drop it while keeping
-    // the modes that still do (slow, subs-only, emote-only).
-    if (chatRestrictions.followersOnly && activeChannelFollowState === false) {
-      const minutes = chatRestrictions.followersMinMinutes;
-      parts.push(
-        minutes && minutes > 0
-          ? `Followers-only · follow for ${formatFollowDuration(minutes)} to chat`
-          : "Followers-only chat",
-      );
-    }
-    if (chatRestrictions.subscribersOnly) parts.push("Subscribers-only chat");
-    if (chatRestrictions.emoteOnly) parts.push("Emote-only chat");
-    if (chatRestrictions.slowModeSeconds) {
-      parts.push(`Slow mode · ${chatRestrictions.slowModeSeconds}s between messages`);
-    }
-    return parts.length > 0 ? parts.join(" · ") : null;
-  }, [activeChannelFollowState, chatRestrictions]);
-
-  const chatBlocked =
-    chatRestrictions.followersOnly && activeChannelFollowState === false;
-  const activeChatPlatform = chatChannel
-    ? parseChannelKey(chatChannel).platform
-    : "twitch";
-  const chatSignedIn =
-    activeChatPlatform === "kick" ? kickAccount !== null : authState.status === "signed-in";
+  // Dismiss modes independently: interaction only restores unmet membership rules.
+  const activeChatPlatform = chatChannel ? parseChannelKey(chatChannel).platform : "twitch";
+  const restrictionParts = chatRestrictionParts(chatRestrictions, activeChannelFollowState, activeChannelSubscribed, formatFollowDuration);
+  const membershipWarnings = restrictionParts.filter(part => part.key === "followers" || part.key === "subscribers").map(part => part.key);
+  const chatRestrictionLabel = restrictionParts
+    .filter(part => activeChatPlatform !== "kick" || !dismissedRestrictions.includes(part.key))
+    .map(part => part.text).join(" · ");
+  const chatBlocked = (chatRestrictions.followersOnly && activeChannelFollowState === false) ||
+    (activeChatPlatform === "kick" && chatRestrictions.subscribersOnly && streamMetadata?.subscription?.isSubscribed === false);
+  const chatSignedIn = activeChatPlatform === "kick" ? kickAccount !== null : authState.status === "signed-in";
   const singleChatDisabled = !chatSignedIn || (chatBlocked && activeChatPlatform !== "kick");
-  const restrictionKey = `${chatChannel}:${chatRestrictionLabel}`;
+  function interactWithChat() {
+    if (activeChatPlatform === "kick") setDismissedRestrictions(current =>
+      current.filter(mode => !membershipWarnings.includes(mode)));
+  }
   // Each service signs in on its own, so the prompt names the one this chat needs.
   const chatSignInPrompt =
     activeChatPlatform === "kick" ? "Sign in to Kick to chat" : "Sign in to Twitch to chat";
@@ -3557,9 +3566,9 @@ export function App() {
     window.dispatchEvent(new CustomEvent("android-player-metadata", { detail: {
       channel: activeChannel.replace(/^(twitch|kick):/, ""), viewers: toolbarViewerCount,
       startedAt: toolbarStartedAt ? Date.parse(toolbarStartedAt) : 0,
-      followed: activeChannelIsFollowed, pending: followPending, chatVisible,
+      followed: activeChannelIsFollowed, subscribed: activeChannelSubscribed, pending: followPending, chatVisible,
     } }));
-  }, [isAndroid, activeChannel, toolbarViewerCount, toolbarStartedAt, activeChannelIsFollowed, followPending, chatVisible]);
+  }, [isAndroid, activeChannel, toolbarViewerCount, toolbarStartedAt, activeChannelIsFollowed, activeChannelSubscribed, followPending, chatVisible]);
 
   return (
     <div
@@ -4381,7 +4390,7 @@ export function App() {
                     disabled={!chatSignedIn || !effectiveMultiChatChannel}
                     maxLength={500}
                     mentionCandidates={chatMentionCandidates}
-                    onValueChange={setChatInput}
+                    onValueChange={value => { interactWithChat(); setChatInput(value); }}
                     placeholder={
                       !chatSignedIn
                         ? chatSignInPrompt
@@ -5195,15 +5204,14 @@ export function App() {
                         onDismiss={chatSender.dismiss}
                         status={chatSender.status}
                       />
-                      {chatRestrictionLabel && (activeChatPlatform !== "kick" || dismissedRestriction !== restrictionKey) && (
+                      {chatRestrictionLabel && (
                         <div className={chatBlocked ? "chat-restriction blocked" : "chat-restriction"}>
                           <Lock size={13} aria-hidden="true" />
                           <span>
                             {chatRestrictionLabel}
-                            {chatBlocked && activeChatPlatform === "kick" && ". Follow to chat."}
                             {chatBlocked && activeChatPlatform === "twitch" && ". Follow on Twitch to chat."}
                           </span>
-                          {activeChatPlatform === "kick" && <button className="chat-restriction-close" aria-label="Dismiss chat restrictions" onClick={() => setDismissedRestriction(restrictionKey)} type="button"><X size={15} /></button>}
+                          {activeChatPlatform === "kick" && <button className="chat-restriction-close" aria-label="Dismiss chat restrictions" onClick={() => setDismissedRestrictions(restrictionParts.map(part => part.key))} type="button"><X size={15} /></button>}
                         </div>
                       )}
                       {replyingTo && (
@@ -5238,7 +5246,7 @@ export function App() {
                           </div>
                         </div>
                       )}
-                      <div className="chat-composer-box" onPointerDownCapture={() => { if (activeChatPlatform === "kick") setDismissedRestriction(null); }}>
+                      <div className="chat-composer-box" onPointerDownCapture={interactWithChat} onFocusCapture={interactWithChat}>
                         <ChatComposerInput
                           emoteMatch={emoteAutocompleteMatch}
                           mentionTab={mentionTabBehavior}
@@ -5247,7 +5255,7 @@ export function App() {
                           keyboardSuppressed={isAndroid && emotePickerOpen}
                           maxLength={500}
                           mentionCandidates={chatMentionCandidates}
-                          onValueChange={setChatInput}
+                          onValueChange={value => { interactWithChat(); setChatInput(value); }}
                           placeholder={
                             chatSignedIn
                               ? replyingTo
@@ -5300,7 +5308,7 @@ export function App() {
                                   channelName={streamMetadata?.displayName ?? activeChannel ?? "Channel"}
                                   onClose={() => setEmotePickerOpen(false)}
                                   onSelect={(name) => {
-                                    if (activeChatPlatform === "kick") setDismissedRestriction(null);
+                                    if (activeChatPlatform === "kick") interactWithChat();
                                     setChatInput((current) =>
                                       `${current}${current && !current.endsWith(" ") ? " " : ""}${name} `,
                                     );
@@ -5544,7 +5552,7 @@ export function App() {
                         open={emotePickerOpen} searchEnabled={emoteSearchEnabled}
                         channelName={streamMetadata?.displayName ?? activeChannel ?? "Channel"}
                         onClose={() => setEmotePickerOpen(false)}
-                        onSelect={(name) => setChatInput((current) => `${current}${current && !current.endsWith(" ") ? " " : ""}${name} `)}
+                        onSelect={(name) => { interactWithChat(); setChatInput((current) => `${current}${current && !current.endsWith(" ") ? " " : ""}${name} `); }}
                         providerChannelEmoteNames={providerChannelNames}
                         providerEmotes={pickerProviderEmotes} twitchEmotes={pickerEmotes}
                         platformLabel={activeChatPlatform === "kick" ? "Kick" : "Twitch"}
@@ -6605,7 +6613,7 @@ export function App() {
                       </button>
                     </div>
                   </div>}
-                  {isAndroid && <div className="settings-card">
+                  {isAndroid && <div ref={defaultQualityCard} className={`settings-card${highlightDefaultQuality ? " default-quality-highlight" : ""}`}>
                     <div>
                       <strong>Default stream quality</strong>
                       <span>Open streams at this quality. If unavailable, use the highest available quality. Auto can use more data.</span>
@@ -7017,7 +7025,7 @@ export function App() {
                       <strong>Data saver</strong>
                       <span>Hide stream previews in Following and Browse. Load chat images only when needed, without saving new image files. Choose a lower default quality in Playback to save video data too.</span>
                     </div>
-                    <button type="button" aria-label="Data saver" aria-pressed={dataSaver} className={dataSaver ? "settings-switch active" : "settings-switch"} onClick={() => void savePreferences({ dataSaver: !dataSaver })}><span /></button>
+                    <button type="button" aria-label="Data saver" aria-pressed={dataSaver} className={dataSaver ? "settings-switch active" : "settings-switch"} onClick={() => { void savePreferences({ dataSaver: !dataSaver }).then(saved => { if (saved && !dataSaver) setDataSaverInfoOpen(true); }); }}><span /></button>
                   </div>}
                   <div className="settings-card">
                     <div>
@@ -7476,6 +7484,22 @@ export function App() {
                 <Maximize size={14} />
               </button>
             </div>
+          </div>
+        )}
+        {dataSaverInfoOpen && (
+          <div className="modal-backdrop data-saver-backdrop" onKeyDown={event => {
+            if (event.key === "Escape") { event.stopPropagation(); setDataSaverInfoOpen(false); }
+          }}>
+            <section className="app-modal data-saver-info" role="dialog" aria-modal="true" aria-labelledby="data-saver-title" aria-describedby="data-saver-description">
+              <h3 id="data-saver-title">Save more data with lower video quality</h3>
+              <p id="data-saver-description">Data saver does not change the quality streams open at. To use less video data, open Playback in Settings and choose a lower Default stream quality.</p>
+              <div className="data-saver-actions">
+                <button type="button" className="secondary-button" onClick={() => {
+                  setDataSaverInfoOpen(false); setSettingsSearch(""); setSettingsSection("playback"); setSettingsOpen(true); setHighlightDefaultQuality(true);
+                }}>Take me there</button>
+                <button type="button" className="primary-button" autoFocus onClick={() => setDataSaverInfoOpen(false)}>OK</button>
+              </div>
+            </section>
           </div>
         )}
         {deviceAuthorization && (

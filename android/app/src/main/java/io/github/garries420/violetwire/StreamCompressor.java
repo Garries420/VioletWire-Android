@@ -2,29 +2,33 @@ package io.github.garries420.violetwire;
 
 import java.nio.ByteBuffer;
 
-/** Stereo-linked, soft-knee compression using VioletWire desktop's settings.
- * Runs on decoded PCM before AudioTrack, so it works on every supported Android version.
- * It adds no look-ahead buffer, gain boost, or playback delay.
+/** Stereo-linked soft-knee compressor for decoded PCM on all supported Android versions.
+ * A low threshold and makeup gain bring quiet speech closer to loud effects. The
+ * mobile preset follows Xtra's published control values, independently implemented
+ * here rather than depending on device-specific AudioEffect availability. No queued
+ * look-ahead is added to live playback.
  */
 final class StreamCompressor {
-    private static final double THRESHOLD_DB = -18, KNEE_DB = 12, RATIO = 4;
-    private static final double ATTACK_SECONDS = .02, RELEASE_SECONDS = .25;
+    private static final double THRESHOLD_DB = -50, KNEE_DB = 40, RATIO = 1.6, MAKEUP_DB = 10;
+    private static final double RELEASE_SECONDS = .25, SWITCH_SECONDS = .005;
     private volatile boolean enabled;
     private boolean previouslyEnabled;
     private int channels;
-    private double attack, release, gainDb;
+    private double release, switchStep, mix, gainDb;
+    private volatile double appliedGainDb;
     private volatile long processedFrames;
 
     void configure(int sampleRate, int channelCount) {
         channels = channelCount;
-        attack = Math.exp(-1.0 / (sampleRate * ATTACK_SECONDS));
+        switchStep = 1.0 / (sampleRate * SWITCH_SECONDS);
         release = Math.exp(-1.0 / (sampleRate * RELEASE_SECONDS));
         reset();
     }
     void enabled(boolean value) { enabled = value; }
     boolean enabled() { return enabled; }
     long processedFrames() { return processedFrames; }
-    void reset() { gainDb = 0; previouslyEnabled = false; processedFrames = 0; }
+    double appliedGainDb() { return appliedGainDb; }
+    void reset() { gainDb = 0; mix = 0; appliedGainDb = 0; previouslyEnabled = false; processedFrames = 0; }
 
     static double reductionDb(double inputDb) {
         double over = inputDb - THRESHOLD_DB;
@@ -35,9 +39,11 @@ final class StreamCompressor {
 
     void process(ByteBuffer input, ByteBuffer output, boolean floatingPoint) {
         boolean active = enabled;
-        if (active != previouslyEnabled) gainDb = 0;
+        if (active && !previouslyEnabled) gainDb = 0;
         previouslyEnabled = active;
-        if (!active) { output.put(input); return; }
+        if (!active && mix == 0) { appliedGainDb = 0; output.put(input); return; }
+        double totalGain = 0;
+        int frames = 0;
         int sampleBytes = floatingPoint ? 4 : 2;
         int frameBytes = channels * sampleBytes;
         while (input.remaining() >= frameBytes) {
@@ -49,9 +55,12 @@ final class StreamCompressor {
                 if (Double.isFinite(value)) peak = Math.max(peak, Math.abs(value));
             }
             double targetDb = reductionDb(20 * Math.log10(Math.max(peak, 1e-12)));
-            double coefficient = targetDb < gainDb ? attack : release;
-            gainDb = coefficient * gainDb + (1 - coefficient) * targetDb;
-            double gain = Math.pow(10, gainDb / 20);
+            // Immediate peak attenuation, then a smooth release. Linked gain
+            // preserves the stereo image and avoids zero-crossing distortion.
+            gainDb = targetDb < gainDb ? targetDb : release * gainDb + (1 - release) * targetDb;
+            mix = active ? Math.min(1, mix + switchStep) : Math.max(0, mix - switchStep);
+            double gain = 1 + mix * (Math.pow(10, (gainDb + MAKEUP_DB) / 20) - 1);
+            totalGain += gain; frames++;
             for (int channel = 0; channel < channels; channel++) {
                 if (floatingPoint) {
                     float value = input.getFloat();
@@ -61,8 +70,9 @@ final class StreamCompressor {
                     output.putShort((short) Math.max(-32768, Math.min(32767, value)));
                 }
             }
-            processedFrames++;
+            if (active) processedFrames++;
         }
+        if (frames > 0) appliedGainDb = 20 * Math.log10(Math.max(totalGain / frames, 1e-12));
         // AudioSink provides complete interleaved frames. Retain any unexpected tail.
         output.put(input);
     }

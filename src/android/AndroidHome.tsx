@@ -1,6 +1,7 @@
 import { AndroidGameCard } from "./AndroidGameCard";
 import { AndroidStreamMenu } from "./AndroidStreamMenu";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { BrowseReturnCache } from "./browse-return-cache";
 import {
   TrendingUp,
   Heart,
@@ -62,6 +63,13 @@ export function AndroidHome() {
   const generation = useRef(0);
   const viewIdentity = useRef("");
   const followedSnapshot = useRef<MobileChannel[]>([]);
+  const feed = useRef<HTMLDivElement>(null);
+  const feedScroll = useRef(0);
+  const restoreScroll = useRef<number | null>(null);
+  const returnCache = useRef(new BrowseReturnCache<{
+    channels: MobileChannel[]; categories: MobileGame[]; videos: Vod[]; cursor?: string;
+  }>());
+
   const [chatVisible, setChatVisible] = useState(true);
   const [accounts, setAccounts] = useState({ twitch: false, kick: false });
   const [libraryPage, setLibraryPage] = useState<string | null>(null);
@@ -84,6 +92,30 @@ export function AndroidHome() {
     [refresh, setRefresh] = useState(0),
     [hidden, setHidden] = useState(false),
     [dataSaver, setDataSaver] = useState(false);
+  const identity = JSON.stringify([page, provider, offline, search, query, tab, category?.id, accounts]);
+  const canRemember = !search && (page === "games" || page === "popular");
+  useLayoutEffect(() => {
+    if (hidden || !canRemember || busy || viewIdentity.current !== identity) return;
+    returnCache.current.remember(identity, { channels, categories, videos, cursor }, feedScroll.current);
+  }, [identity, hidden, canRemember, busy, channels, categories, videos, cursor]);
+  useLayoutEffect(() => {
+    if (!hidden && feed.current && restoreScroll.current !== null) {
+      feed.current.scrollTop = restoreScroll.current;
+      feedScroll.current = feed.current.scrollTop;
+      restoreScroll.current = null;
+    }
+  });
+  useEffect(() => {
+    // Capture before the player removes the feed DOM. Retain every loaded page,
+    // including the parent games directory, for five minutes from this entry.
+    const leaving = () => {
+      if (hidden || !canRemember) return;
+      returnCache.current.setScroll(identity, feed.current?.scrollTop ?? feedScroll.current);
+      returnCache.current.enterStream();
+    };
+    window.addEventListener("android-watch-live", leaving, true);
+    return () => window.removeEventListener("android-watch-live", leaving, true);
+  }, [hidden, canRemember, identity]);
   const loginRequired =
     !search && page === "following" && !accounts.twitch && !accounts.kick;
   useEffect(() => {
@@ -299,22 +331,30 @@ export function AndroidHome() {
   useEffect(() => {
     const request = ++generation.current;
     if (hidden || (page === "saved" && !search)) return;
+    const cached = canRemember ? returnCache.current.restore(identity) : undefined;
+    if (cached) {
+      viewIdentity.current = identity;
+      restoreScroll.current = cached.scrollTop;
+      setChannels(cached.data.channels); setCategories(cached.data.categories);
+      setVideos(cached.data.videos); setCursor(cached.data.cursor);
+      setBusy(false); setError("");
+      const frame = requestAnimationFrame(() => {
+        if (feed.current && restoreScroll.current !== null) {
+          feed.current.scrollTop = restoreScroll.current;
+          feedScroll.current = feed.current.scrollTop; restoreScroll.current = null;
+        }
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+    // Expired snapshots refetch from page one and begin at the top.
+    restoreScroll.current = 0;
+    feedScroll.current = 0;
     let cancelled = false;
     void Promise.resolve().then(() => {
       if (cancelled) return;
       setBusy(true);
       setError("");
-      const identity = JSON.stringify([
-        page,
-        provider,
-        offline,
-        search,
-        query,
-        tab,
-        category?.id,
-        accounts,
-      ]);
-      if (viewIdentity.current !== identity) {
+      if (viewIdentity.current !== identity || canRemember) {
         viewIdentity.current = identity;
         setChannels([]);
         setCategories([]);
@@ -504,7 +544,10 @@ export function AndroidHome() {
           ))}
         </div>
       )}
-      <div className="mobile-feed" aria-hidden={libraryPage === "profile"}>
+      <div className="mobile-feed" ref={feed} onScroll={event => {
+        feedScroll.current = event.currentTarget.scrollTop;
+        if (canRemember) returnCache.current.setScroll(identity, feedScroll.current);
+      }} aria-hidden={libraryPage === "profile"}>
         {error && !loginRequired && (
           <p role="alert" className="android-library-error">
             {error}
