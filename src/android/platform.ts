@@ -293,6 +293,7 @@ export async function initializePlatform(): Promise<void> {
     window.dispatchEvent(new Event("android-close-player"));
   });
   await VioletNative.addListener("surfaceGesture", (event) => window.dispatchEvent(new CustomEvent("android-player-gesture", { detail: event })));
+  await VioletNative.addListener("playerInteraction", () => window.dispatchEvent(new Event("android-player-interaction")));
   await VioletNative.addListener("streamAction", ({ action }) => window.dispatchEvent(new CustomEvent("android-stream-" + action, { detail: activeChannel })));
   await VioletNative.addListener("vodSeek", () => { if (activeVod) startReplay(); });
   await VioletNative.addListener("viewMode", ({ chatOnly }) => { document.documentElement.classList.toggle("android-chat-only", chatOnly); if (chatOnly) window.dispatchEvent(new Event("android-stream-chat-mode")); });

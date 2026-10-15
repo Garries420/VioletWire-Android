@@ -50,6 +50,35 @@ export class KickPublicService {
       );
     return response.json();
   }
+  /** Negotiate the public chat transport just as Kick's website does. Keys rotate. */
+  async getChatConnection(channelId: string): Promise<{ appKey: string; cluster: string }> {
+    const response = await this.request(
+      `https://web.kick.com/api/v1/realtime/channels/${encodeURIComponent(channelId)}/chat/connection`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json", "x-app-platform": "web" },
+        body: JSON.stringify({
+          client: { id: crypto.randomUUID(), type: "web" },
+          capabilities: { accepted_providers: [{ provider: "pusher" }] },
+        }),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      },
+    );
+    if (!response.ok) throw new Error(`Kick chat connection unavailable (${response.status}).`);
+    const parsed = z.object({ data: z.object({
+      mode: z.literal("websocket"),
+      connections: z.array(z.object({ provider: z.string(), credentials: z.object({
+        app_key: z.string().regex(/^[a-zA-Z0-9]+$/).max(128).optional(),
+        cluster: z.string().regex(/^[a-z]{2,3}[0-9]?$/).optional(),
+      }).passthrough() })),
+    }) }).parse(await response.json());
+    const transport = parsed.data.connections.find((entry) => entry.provider === "pusher");
+    if (!transport?.credentials.app_key || !transport.credentials.cluster) {
+      throw new Error("Kick did not offer a supported public chat connection.");
+    }
+    return { appKey: transport.credentials.app_key, cluster: transport.credentials.cluster };
+  }
+
   async getVideos(slug: string): Promise<unknown> {
     return this.requestJson(
       `/api/v2/channels/${encodeURIComponent(slug)}/videos`,

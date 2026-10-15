@@ -844,6 +844,18 @@ export function App() {
   const playerPageRef = useRef<HTMLElement>(null);
   const chatResizeState = useRef<{ layoutLeft: number; layoutRight: number } | null>(null);
   const [chatResizing, setChatResizing] = useState(false);
+  const [chatResizeHintVisible, setChatResizeHintVisible] = useState(false);
+  const chatResizeHintTimer = useRef<number | null>(null);
+  const revealChatResizeHint = useCallback(() => {
+    if (!isAndroid) return;
+    setChatResizeHintVisible(true);
+    if (chatResizeHintTimer.current !== null) window.clearTimeout(chatResizeHintTimer.current);
+    chatResizeHintTimer.current = window.setTimeout(() => {
+      setChatResizeHintVisible(false);
+      chatResizeHintTimer.current = null;
+    }, controlsHideDelay);
+  }, [isAndroid, controlsHideDelay]);
+
   const [chatOpacity, setChatOpacity] = useState(() => {
     const stored = Number(window.localStorage.getItem("glint.chat.overlayOpacity"));
     return Number.isFinite(stored) && stored >= 25 && stored <= 100 ? stored : 88;
@@ -905,6 +917,16 @@ export function App() {
   // Twitch-style floating mini player: the HLS session keeps playing in a
   // small draggable corner while the user browses other sections.
   const [miniPlayerActive, setMiniPlayerActive] = useState(false);
+  useEffect(() => {
+    setChatResizeHintVisible(false);
+    const streamTap = () => revealChatResizeHint();
+    if (isAndroid && activeChannel && !miniPlayerActive) window.addEventListener("android-player-interaction", streamTap);
+    return () => {
+      window.removeEventListener("android-player-interaction", streamTap);
+      if (chatResizeHintTimer.current !== null) window.clearTimeout(chatResizeHintTimer.current);
+      chatResizeHintTimer.current = null;
+    };
+  }, [isAndroid, activeChannel, miniPlayerActive, revealChatResizeHint]);
   const [miniPlayerPosition, setMiniPlayerPosition] = useState<
     { left: number; top: number } | null
   >(null);
@@ -1928,6 +1950,7 @@ export function App() {
     event.currentTarget.setPointerCapture(event.pointerId);
     event.preventDefault();
     setChatResizing(true);
+    revealChatResizeHint();
   }
 
   function clampChatWidth(desired: number, layoutWidth: number): number {
@@ -1955,6 +1978,7 @@ export function App() {
     if (!chatResizeState.current) return;
     chatResizeState.current = null;
     setChatResizing(false);
+    revealChatResizeHint();
     const value = playerPageRef.current?.style.getPropertyValue("--chat-sidebar-width");
     const parsed = value ? Number.parseInt(value, 10) : NaN;
     if (Number.isFinite(parsed)) setChatSidebarWidth(parsed);
@@ -4532,6 +4556,7 @@ export function App() {
             className={[
               "player-page",
               chatResizing ? "chat-resizing" : "",
+              isAndroid && chatResizeHintVisible ? "chat-resize-hint-visible" : "",
               // In theater/fullscreen the toolbar floats over the video, so it
               // fades with the player controls rather than staying permanent.
               activeMode === "native" && !nativeControlsVisible ? "controls-hidden" : "",
@@ -4905,6 +4930,7 @@ export function App() {
                     .filter(Boolean)
                     .join(" ")}
                   aria-label={`${activeChannel} chat`}
+                  onPointerDownCapture={revealChatResizeHint}
                   onMouseEnter={revealChatComposer}
                   style={
                     chatPresentation === "overlay"

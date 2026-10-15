@@ -930,3 +930,24 @@
 .android .changelog-release + .changelog-release { border-top: 1px solid #3c3243; }
 
 .android .changelog-modal-content { align-content: start; gap: 0; }
+
+/* Reply context wraps with the chat width and font size, but never exceeds three lines. */
+.android .chat-reply-parent {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  max-height: 4.2em;
+  font-size: .9em;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.android .chat-resize-handle::before {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+.android .chat-resize-hint-visible .chat-resize-handle::before,
+.android .chat-resizing .chat-resize-handle::before {
+  opacity: 1;
+}

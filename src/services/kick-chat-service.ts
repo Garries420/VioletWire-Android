@@ -23,16 +23,11 @@ type StateListener = (state: ChatConnectionState) => void;
  * itself uses is Pusher, and that accepts anonymous subscribers, so reading a
  * public channel's chat needs no account and no key of our own.
  */
-const PUSHER_APP_KEY = "32cbd69e4b950bf97679";
-const PUSHER_CLUSTER = "us2";
-const PUSHER_URL =
-  `wss://ws-${PUSHER_CLUSTER}.pusher.com/app/${PUSHER_APP_KEY}` +
-  "?protocol=7&client=violetwire&version=1.0";
-
-// Pusher sends its own pings; treat a long silence as a dead connection the way
-// the Twitch service does, rather than trusting close events to always arrive.
-const WATCHDOG_INTERVAL = 30_000;
-const DEAD_AFTER_SILENCE = 180_000;
+// Public transport details are negotiated per connection, not compiled into the app.
+const WATCHDOG_INTERVAL = 10_000;
+const ACTIVITY_TIMEOUT = 120_000;
+const PONG_TIMEOUT = 30_000;
+const HANDSHAKE_TIMEOUT = 15_000;
 const MAX_RECONNECT_DELAY = 30_000;
 const MAX_REPLY_TARGETS = 500;
 
@@ -384,11 +379,15 @@ export class KickChatService {
   private socket: WebSocket | null = null;
   private channel: string | null = null;
   private chatroomId: string | null = null;
+  private channelId: string | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectAttempt = 0;
   private manuallyClosed = false;
   private lastActivityAt = 0;
   private watchdogTimer: NodeJS.Timeout | null = null;
+  private handshakeTimer: NodeJS.Timeout | null = null;
+  private activityTimeoutMs = ACTIVITY_TIMEOUT;
+  private pingSentAt: number | null = null;
   // Guards against a slow chatroom lookup completing after the user has already
   // moved to another channel.
   private connectGeneration = 0;
@@ -399,7 +398,7 @@ export class KickChatService {
   constructor(
     private readonly getKickService: () => Pick<
       KickPublicService,
-      "getChannel" | "getChatHistory"
+      "getChannel" | "getChatHistory" | "getChatConnection"
     >,
     private readonly onMessage: MessageListener,
     private readonly onState: StateListener,
@@ -426,13 +425,14 @@ export class KickChatService {
       return;
     }
     this.chatroomId = channel.chatroomId;
+    this.channelId = channel.id;
     this.subscriberBadges = channel.subscriberBadges ?? [];
     if (channel.restrictions) this.onRestrictions(channel.restrictions);
-    this.openSocket();
+    void this.openSocket();
     // Load recent chat once the socket is opening, so history and live messages
     // both flow to the same buffer. The channel id, not the chatroom id, keys
     // the message route.
-    void this.loadHistory(channel.id, generation);
+    void this.loadHistory(channel.id, generation).catch(() => undefined);
   }
 
   setHistoryLimit(limit: number): void {
@@ -515,6 +515,7 @@ export class KickChatService {
     this.clearTimers();
     this.reconnectAttempt = 0;
     this.chatroomId = null;
+    this.channelId = null;
     this.channel = null;
     this.replyTargets.clear();
     const socket = this.socket;
@@ -533,44 +534,54 @@ export class KickChatService {
     this.onState("disconnected");
   }
 
-  private openSocket(): void {
-    const socket = new WebSocket(PUSHER_URL);
-    this.socket = socket;
-    this.lastActivityAt = Date.now();
-
-    socket.onopen = () => {
-      if (this.socket !== socket || this.chatroomId === null) return;
+  private async openSocket(): Promise<void> {
+    const generation = this.connectGeneration;
+    try {
+      if (!this.channelId || this.chatroomId === null || this.manuallyClosed) return;
+      const { appKey, cluster } = await this.getKickService().getChatConnection(this.channelId);
+      if (generation !== this.connectGeneration || this.manuallyClosed) return;
+      const socket = new WebSocket(
+        `wss://ws-${cluster}.pusher.com/app/${appKey}?protocol=7&client=violetwire&version=1.0`,
+      );
+      this.socket = socket;
       this.lastActivityAt = Date.now();
-      // v2 carries the identity fields (colour and badges) that v1 omits.
-      this.send(socket, {
-        event: "pusher:subscribe",
-        data: { auth: "", channel: `chatrooms.${this.chatroomId}.v2` },
-      });
-      this.reconnectAttempt = 0;
-      this.onState("connected");
-      this.startWatchdog();
-    };
+      this.activityTimeoutMs = ACTIVITY_TIMEOUT;
+      this.pingSentAt = null;
+      this.handshakeTimer = setTimeout(() => {
+        if (this.socket === socket) this.scheduleReconnect();
+      }, HANDSHAKE_TIMEOUT);
+      this.handshakeTimer.unref?.();
 
-    socket.onmessage = (event) => {
-      if (this.socket !== socket) return;
-      this.lastActivityAt = Date.now();
-      this.handleFrame(typeof event.data === "string" ? event.data : "");
-    };
+      socket.onopen = () => {
+        if (this.socket !== socket || this.chatroomId === null) return;
+        this.lastActivityAt = Date.now();
+        this.startWatchdog();
+      };
 
-    socket.onerror = () => {
-      if (this.socket === socket) this.scheduleReconnect();
-    };
+      socket.onmessage = (event) => {
+        if (this.socket !== socket) return;
+        this.lastActivityAt = Date.now();
+        this.pingSentAt = null;
+        this.handleFrame(typeof event.data === "string" ? event.data : "");
+      };
 
-    socket.onclose = () => {
-      if (this.socket === socket) this.scheduleReconnect();
-    };
+      socket.onerror = () => {
+        if (this.socket === socket) this.scheduleReconnect();
+      };
+
+      socket.onclose = () => {
+        if (this.socket === socket) this.scheduleReconnect();
+      };
+    } catch {
+      if (generation === this.connectGeneration && !this.manuallyClosed) this.scheduleReconnect();
+    }
   }
 
   private handleFrame(raw: string): void {
     if (raw.length === 0) return;
-    let frame: { event?: string; data?: unknown };
+    let frame: { event?: string; channel?: string; data?: unknown };
     try {
-      frame = JSON.parse(raw) as { event?: string; data?: unknown };
+      frame = JSON.parse(raw) as { event?: string; channel?: string; data?: unknown };
     } catch {
       return;
     }
@@ -579,6 +590,32 @@ export class KickChatService {
     const payload = this.parseNestedData(frame.data);
     if (payload === null) return;
 
+    const socket = this.socket;
+    if (!socket || this.chatroomId === null) return;
+    const room = `chatrooms.${this.chatroomId}.v2`;
+    if (frame.event === "pusher:connection_established") {
+      const timeout = numberValue(payload.activity_timeout);
+      if (timeout && timeout > 0) this.activityTimeoutMs = Math.min(ACTIVITY_TIMEOUT, timeout * 1000);
+      this.send(socket, { event: "pusher:subscribe", data: { auth: "", channel: room } });
+      return;
+    }
+    if (frame.event === "pusher:ping") {
+      this.send(socket, { event: "pusher:pong", data: {} });
+      return;
+    }
+    if (frame.event === "pusher:pong") return;
+    if (frame.event === "pusher:error" || frame.event === "pusher:subscription_error") {
+      this.scheduleReconnect();
+      return;
+    }
+    if (frame.channel !== room) return;
+    if (frame.event === "pusher_internal:subscription_succeeded") {
+      if (this.handshakeTimer !== null) clearTimeout(this.handshakeTimer);
+      this.handshakeTimer = null;
+      this.reconnectAttempt = 0;
+      this.onState("connected");
+      return;
+    }
     if (frame.event === "App\\Events\\ChatMessageEvent") {
       const message = this.toChatMessage(payload);
       if (message !== null) this.onMessage(message);
@@ -669,10 +706,13 @@ export class KickChatService {
   private startWatchdog(): void {
     this.stopWatchdog();
     this.watchdogTimer = setInterval(() => {
-      if (Date.now() - this.lastActivityAt < DEAD_AFTER_SILENCE) return;
-      // Silent far longer than Pusher's own ping interval: the socket is up as
-      // far as the OS is concerned but is delivering nothing.
-      this.scheduleReconnect();
+      const now = Date.now();
+      if (this.pingSentAt !== null) {
+        if (now - this.pingSentAt >= PONG_TIMEOUT) this.scheduleReconnect();
+      } else if (now - this.lastActivityAt >= this.activityTimeoutMs && this.socket) {
+        this.pingSentAt = now;
+        this.send(this.socket, { event: "pusher:ping", data: {} });
+      }
     }, WATCHDOG_INTERVAL);
     this.watchdogTimer.unref?.();
   }
@@ -685,6 +725,8 @@ export class KickChatService {
 
   private clearTimers(): void {
     this.stopWatchdog();
+    if (this.handshakeTimer !== null) clearTimeout(this.handshakeTimer);
+    this.handshakeTimer = null;
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -706,7 +748,7 @@ export class KickChatService {
         // Already closing.
       }
     }
-    this.stopWatchdog();
+    this.clearTimers();
     this.onState("reconnecting");
 
     const delay = Math.min(
@@ -717,7 +759,7 @@ export class KickChatService {
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       if (this.manuallyClosed || this.chatroomId === null) return;
-      this.openSocket();
+      void this.openSocket();
     }, delay);
     this.reconnectTimer.unref?.();
   }

@@ -348,7 +348,10 @@ public class VioletNativePlugin extends Plugin {
             view = new PlayerView(getContext()) {
                 @Override public boolean performClick() {
                     super.performClick();
-                    if (!miniSurface && !pipActive && controls != null) controls.toggle();
+                    if (!miniSurface && !pipActive && controls != null) {
+                        controls.toggle();
+                        notifyListeners("playerInteraction", new JSObject());
+                    }
                     return true;
                 }
             };
@@ -368,7 +371,7 @@ public class VioletNativePlugin extends Plugin {
             adNotice.setText("Ad blocked\nWaiting for Twitch to resume the stream");
             adNotice.setTextColor(Color.WHITE); adNotice.setTextSize(14); adNotice.setGravity(Gravity.CENTER);
             adNotice.setBackgroundColor(Color.BLACK); adNotice.setVisibility(View.GONE);
-            adNotice.setOnClickListener(v -> { if (controls != null && !miniSurface && !pipActive) controls.toggle(); });
+            adNotice.setOnClickListener(v -> { if (controls != null && !miniSurface && !pipActive) { controls.toggle(); notifyListeners("playerInteraction", new JSObject()); } });
             getActivity().addContentView(adNotice, new FrameLayout.LayoutParams(1, 1));
             controls = new StreamControls(getActivity(), new StreamControls.Actions() {
                 public void action(String action) {

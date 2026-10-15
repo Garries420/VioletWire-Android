@@ -66,6 +66,7 @@ interface VioletNativePlugin {
   focusPlayer(): Promise<void>;
   fullscreen(options: { value: boolean }): Promise<void>;
   addListener(event: "surfaceGesture", listener: (event: { phase: string; x: number; y: number }) => void): Promise<PluginListenerHandle>;
+  addListener(event: "playerInteraction", listener: () => void): Promise<PluginListenerHandle>;
   addListener(event: "streamAction", listener: (event: { action: string }) => void): Promise<PluginListenerHandle>;
   addListener(event: "vodSeek", listener: () => void): Promise<PluginListenerHandle>;
   addListener(event: "viewMode", listener: (event: { chatOnly: boolean }) => void): Promise<PluginListenerHandle>;
