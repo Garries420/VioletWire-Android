@@ -106,15 +106,23 @@ public class VioletNativePlugin extends Plugin {
     private volatile int targetOffsetMs = 2500;
     private volatile long kickSegmentMs = 4200;
     private volatile int kickRebufferPenaltyMs;
+    private volatile int twitchRebufferPenaltyMs;
+    private long twitchTransitionUntilMs;
+    private long kickStablePlaybackMs;
     private boolean kickInitialRecovery;
+    private long kickStartupUntilMs;
     private long kickTransitionUntilMs;
     private void kickTransition(boolean retry) {
-        if (!isKickLive()) return;
+        if (!isKickLive()) {
+            twitchTransitionUntilMs = android.os.SystemClock.elapsedRealtime() + 5000;
+            if (retry) twitchRebufferPenaltyMs = 0;
+            return;
+        }
         kickTransitionUntilMs = android.os.SystemClock.elapsedRealtime() + 5000;
-        if (retry) kickRebufferPenaltyMs = 0;
+        if (retry) { kickRebufferPenaltyMs = 0; kickStablePlaybackMs = 0; kickInitialRecovery = false; kickStartupUntilMs = android.os.SystemClock.elapsedRealtime() + 30000; }
     }
     private boolean isKickLive() { return playbackChannel != null && playbackChannel.startsWith("kick:") && !vodPlayback; }
-    private int effectiveTargetMs() { return isKickLive() ? LivePlaybackTuning.kickTarget(targetOffsetMs, kickSegmentMs, kickRebufferPenaltyMs) : targetOffsetMs; }
+    private int effectiveTargetMs() { return isKickLive() ? LivePlaybackTuning.kickTarget(targetOffsetMs, kickSegmentMs, kickRebufferPenaltyMs) : targetOffsetMs + (!vodPlayback && activeProxy == null ? twitchRebufferPenaltyMs : 0); }
     private int controlsHideDelay = 5000;
     private PlayerDiagnostics diagnostics;
     private long droppedFrames, stalls, liveResyncs, lastLiveResyncMs;
@@ -123,7 +131,14 @@ public class VioletNativePlugin extends Plugin {
     private boolean playedOnce;
     private final Handler statsHandler = new Handler(Looper.getMainLooper());
     private final Runnable statsTick = new Runnable() {
-        public void run() { if (player == null) return; if (controls != null) { controls.latency(latencyLabel()); controls.timeline(vodPlayback, player.getCurrentPosition(), player.getDuration() == C.TIME_UNSET ? 0 : player.getDuration()); } statsHandler.postDelayed(this, 1000); }
+        public void run() { if (player == null) return;
+            // A transient outage must not leave the stream behind forever.
+            // Back down gently after each minute of uninterrupted playback.
+            if (isKickLive() && kickRebufferPenaltyMs > 0 && player.isPlaying()) {
+                kickStablePlaybackMs += 1000;
+                if (kickStablePlaybackMs >= 60000) { kickRebufferPenaltyMs = Math.max(0, kickRebufferPenaltyMs - 250); kickStablePlaybackMs = 0; }
+            } else kickStablePlaybackMs = 0;
+            if (controls != null) { controls.latency(latencyLabel()); controls.timeline(vodPlayback, player.getCurrentPosition(), player.getDuration() == C.TIME_UNSET ? 0 : player.getDuration()); } statsHandler.postDelayed(this, 1000); }
     };
     private float surfaceX, surfaceY, surfaceWidth = 1f, surfaceHeight = 1f, viewportWidth = 1f;
 
@@ -343,7 +358,8 @@ public class VioletNativePlugin extends Plugin {
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true);
         player.setHandleAudioBecomingNoisy(true);
         player.setVolume(muted ? 0 : volume);
-        kickSegmentMs = 4200; kickRebufferPenaltyMs = 0; kickInitialRecovery = false; kickTransitionUntilMs = 0;
+        twitchRebufferPenaltyMs = 0; twitchTransitionUntilMs = 0;
+        kickSegmentMs = 4200; kickRebufferPenaltyMs = 0; kickStablePlaybackMs = 0; kickInitialRecovery = false; kickStartupUntilMs = android.os.SystemClock.elapsedRealtime() + 30000; kickTransitionUntilMs = 0;
         droppedFrames = 0; stalls = 0; liveResyncs = 0; lastLiveResyncMs = 0; playedOnce = false; previousPlaybackState = Player.STATE_IDLE; pendingLiveResync = false;
         player.addAnalyticsListener(new androidx.media3.exoplayer.analytics.AnalyticsListener() {
             @Override public void onDroppedVideoFrames(EventTime time, int count, long elapsed) { droppedFrames += count; }
@@ -356,10 +372,15 @@ public class VioletNativePlugin extends Plugin {
                 // Quality changes and the one startup catch-up deliberately
                 // replace buffered media. They are not network underruns.
                 boolean expectedKickTransition = isKickLive() && android.os.SystemClock.elapsedRealtime() < kickTransitionUntilMs;
-                if (value == Player.STATE_BUFFERING && playedOnce && !expectedKickTransition) {
+                if (value == Player.STATE_BUFFERING && playedOnce && !expectedKickTransition
+                    && !( !isKickLive() && android.os.SystemClock.elapsedRealtime() < twitchTransitionUntilMs)) {
                     stalls++;
                     if (isKickLive() && !userPaused && targetOffsetMs <= 3000) {
-                        kickRebufferPenaltyMs = Math.min(2000, kickRebufferPenaltyMs + 500);
+                        kickRebufferPenaltyMs = Math.min(2000, kickRebufferPenaltyMs + 500); kickStablePlaybackMs = 0;
+                    } else if (!vodPlayback && !isKickLive() && !userPaused && activeProxy == null && !adBlocked && adFallback == null) {
+                        // Keep the learned margin for this viewing session. A
+                        // transient SDK estimate must not repeatedly erase it.
+                        twitchRebufferPenaltyMs = Math.min(3000, twitchRebufferPenaltyMs + 500);
                     }
                 }
                 if (value == Player.STATE_READY) {
@@ -371,7 +392,7 @@ public class VioletNativePlugin extends Plugin {
                     if (recovered && playbackChannel != null && playbackChannel.matches("[a-z0-9_]{1,25}")
                         && !vodPlayback && !userPaused && !adBlocked && adFallback == null
                         && activeProxy == null && !"chat_only".equals(selectedQuality)
-                        && LivePlaybackTuning.shouldResync(targetOffsetMs, player.getCurrentLiveOffset(), now - lastLiveResyncMs)) {
+                        && LivePlaybackTuning.shouldResync(effectiveTargetMs(), player.getCurrentLiveOffset(), now - lastLiveResyncMs)) {
                         pendingLiveResync = true;
                     }
                     tryLiveResync();
@@ -379,13 +400,17 @@ public class VioletNativePlugin extends Plugin {
             }
             @Override public void onEvents(Player current, Player.Events events) { report(); }
             @Override public void onTimelineChanged(androidx.media3.common.Timeline timeline, int reason) {
-                if (pendingAdResume && !userPaused) { pendingAdResume = false; pendingLiveResync = false; player.seekToDefaultPosition(); }
-                // Only the first fresh Kick timeline may recover an old startup
-                // snapshot. Repeated seeks toward unavailable chunks cause stalls.
-                if (isKickLive() && !kickInitialRecovery && player.getPlaybackState() == Player.STATE_READY
-                    && !userPaused && targetOffsetMs <= 3000) {
-                    kickInitialRecovery = true;
-                    if (player.getCurrentLiveOffset() > effectiveTargetMs() + 2000L) pendingLiveResync = true;
+                if (pendingAdResume && !userPaused) { kickTransition(false); pendingAdResume = false; pendingLiveResync = false; player.seekToDefaultPosition(); }
+                // Allow one startup catch-up after the initial quality/clock
+                // settles. An early low offset must not spend that opportunity
+                // before a later startup snapshot jumps behind the live edge.
+                if (isKickLive() && !kickInitialRecovery && !userPaused && targetOffsetMs <= 3000) {
+                    if (android.os.SystemClock.elapsedRealtime() >= kickStartupUntilMs) {
+                        kickInitialRecovery = true; pendingLiveResync = false;
+                    } else if (player.getPlaybackState() == Player.STATE_READY) {
+                        long offset = player.getCurrentLiveOffset();
+                        if (offset != C.TIME_UNSET && offset > effectiveTargetMs() + 2000L) pendingLiveResync = true;
+                    }
                 }
                 tryLiveResync();
             }
@@ -495,7 +520,7 @@ public class VioletNativePlugin extends Plugin {
             stopAdFallback(); activeProxy = null;
             playbackChannel = call.getString("channel", "");
             vodPlayback = call.getBoolean("vod", false); downloadId = call.getString("downloadId");
-            source = url; playbackError = null; userPaused = false;
+            source = url; twitchSession = new TwitchPlaybackSession(url); playbackError = null; userPaused = false;
             volume = Math.max(0, Math.min(100, call.getInt("volume", 100))) / 100f;
             selectedQuality = call.getString("quality", "best");
             if(vodPlayback && "best".equals(selectedQuality))selectedQuality="source";
@@ -529,22 +554,27 @@ public class VioletNativePlugin extends Plugin {
         if (player.getPlaybackState() != Player.STATE_READY) return;
         long now = android.os.SystemClock.elapsedRealtime();
         long offset = player.getCurrentLiveOffset();
-        if (!(isKickLive() ? offset != C.TIME_UNSET && offset > effectiveTargetMs() + 2000L : LivePlaybackTuning.shouldResync(targetOffsetMs, offset, now - lastLiveResyncMs))) { pendingLiveResync = false; return; }
+        if (!(isKickLive() ? offset != C.TIME_UNSET && offset > effectiveTargetMs() + 2000L : LivePlaybackTuning.shouldResync(effectiveTargetMs(), offset, now - lastLiveResyncMs))) { pendingLiveResync = false; return; }
         long position = LivePlaybackTuning.recoveryPositionMs(effectiveTargetMs(), offset, player.getCurrentPosition(), player.getDuration());
         if (position == C.TIME_UNSET) return;
         pendingLiveResync = false; lastLiveResyncMs = now; liveResyncs++;
+        if (isKickLive()) kickInitialRecovery = true;
         // Keep the session. A master reload may start a new preroll, and the
         // default live position may still belong to a stale playlist snapshot.
         kickTransition(false);
         player.seekTo(position);
     }
 
+    private TwitchPlaybackSession twitchSession;
     private void refreshLive() {
         if (player == null || source == null || vodPlayback) return;
         // A fresh source discards stale buffered segments and fetches the live
         // playlist again. Keep the player, selected quality, volume and chat.
         playbackError = null;
         userPaused = false;
+        // An explicit refresh may renew expired URLs. Automatic ad returns
+        // reuse the still-valid session that the direct monitor checked.
+        if (!isKickLive()) twitchSession = new TwitchPlaybackSession(source);
         kickTransition(true);
         player.setMediaSource(mediaSource(), true);
         applyQuality();
@@ -571,12 +601,13 @@ public class VioletNativePlugin extends Plugin {
         }
         adBlocked = activeProxy != null; pendingAdResume = false;
         MediaItem item = new MediaItem.Builder().setUri(activeProxy == null ? source : activeProxy).setMimeType(MimeTypes.APPLICATION_M3U8)
-            .setLiveConfiguration(isKickLive() ? LivePlaybackTuning.kickConfiguration(effectiveTargetMs()) : LivePlaybackTuning.configuration(targetOffsetMs)).build();
-        return new HlsMediaSource.Factory(new DefaultHttpDataSource.Factory())
-            // Fast Kick polling must not make normal 4.17s chunks look stuck.
-            // With the 1s reload clock, retain 21s of outage tolerance (the
-            // default 3.5 times Kick's ordinary advertised 6s target duration).
-            .setPlaylistTrackerFactory(isKickLive() && targetOffsetMs <= 3000
+            .setLiveConfiguration(isKickLive() ? LivePlaybackTuning.kickConfiguration(effectiveTargetMs()) : LivePlaybackTuning.configuration(effectiveTargetMs())).build();
+        if (twitchSession == null) twitchSession = new TwitchPlaybackSession(source);
+        return new HlsMediaSource.Factory(isKickLive() ? new DefaultHttpDataSource.Factory() : twitchSession)
+            // Fast polling must not shorten the original outage tolerance.
+            // Both providers advertise a 6s target duration. Keep its normal
+            // 21s stuck deadline even when our local reload clock is 1s.
+            .setPlaylistTrackerFactory(targetOffsetMs <= 3000
                 ? (dataSources, errors, parsers, cmcd, executor) -> new androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistTracker(dataSources, errors, parsers, cmcd, 21.0, executor)
                 : androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistTracker.FACTORY)
             .setPlaylistParserFactory(new TwitchPlaylistParserFactory(blocked -> getActivity().runOnUiThread(() -> {
@@ -601,14 +632,14 @@ public class VioletNativePlugin extends Plugin {
                 if (adFallback == null) adFallback = new AdFallbackController(playbackChannel, new AdFallbackController.Listener() {
                     public void proxy(String url) {
                         if (adFallback == null || player == null || source == null || "chat_only".equals(selectedQuality)) return;
-                        activeProxy = url; playbackError = null;
+                        activeProxy = url; playbackError = null; kickTransition(false);
                         player.setMediaSource(mediaSource()); applyQuality(); player.prepare(); player.setPlayWhenReady(!userPaused);
                         android.widget.Toast.makeText(getContext(), "Ad fallback · temporary proxy playback", android.widget.Toast.LENGTH_SHORT).show();
                         layoutPlayer(); report();
                     }
                     public void direct() {
                         if (player == null || source == null) return;
-                        adFallback = null; activeProxy = null; playbackError = null;
+                        adFallback = null; activeProxy = null; playbackError = null; kickTransition(false);
                         player.setMediaSource(mediaSource()); applyQuality(); player.prepare(); player.setPlayWhenReady(!userPaused);
                         layoutPlayer(); report();
                     }
@@ -894,6 +925,7 @@ public class VioletNativePlugin extends Plugin {
                 .put("adPlayback", activeProxy == null ? adBlocked ? "blocked" : "direct" : "proxy")
                 .put("controlsHideDelayMs", String.valueOf(controlsHideDelay))
                 .put("targetLiveOffsetMs", String.valueOf(targetOffsetMs))
+                .put("twitchRebufferPenaltyMs", String.valueOf(twitchRebufferPenaltyMs))
                 .put("effectiveLiveOffsetMs", String.valueOf(effectiveTargetMs()))
                 .put("kickSegmentMs", String.valueOf(isKickLive() ? kickSegmentMs : 0))
                 .put("mediaTargetLiveOffsetMs", String.valueOf(player == null || player.getCurrentMediaItem() == null ? 0 : player.getCurrentMediaItem().liveConfiguration.targetOffsetMs));
@@ -919,6 +951,9 @@ public class VioletNativePlugin extends Plugin {
         values.put("Live recoveries", String.valueOf(liveResyncs));
         long liveTarget = PlaybackService.liveTargetOffsetMs();
         values.put("Live target", vodPlayback ? "VOD" : liveTarget == C.TIME_UNSET ? "—" : String.format(java.util.Locale.ROOT, "%.2fs", liveTarget / 1000d));
+        values.put("Twitch session requests", String.valueOf(twitchSession == null ? 0 : twitchSession.requests()));
+        values.put("Twitch session reuses", String.valueOf(twitchSession == null ? 0 : twitchSession.reuses()));
+        values.put("Live speed", String.format(java.util.Locale.ROOT, "%.3f×", PlaybackService.liveSpeed()));
         values.put("Media transport", downloadId != null ? "Saved on device" : activeProxy != null ? "Temporary ad proxy" : playbackChannel != null && playbackChannel.startsWith("kick:") ? "Direct Kick CDN" : "Direct Twitch CDN");
         values.put("Audio compressor", PlaybackService.compression() ? "Enabled" : "Disabled");
         values.put("Compressor route", PlaybackService.compressorRoute());

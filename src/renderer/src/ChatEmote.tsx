@@ -32,6 +32,7 @@ export function ChatEmote({
   const [tooltip, setTooltip] = useState<EmotePreviewPosition | null>(null);
 
   function showTooltip() {
+    if (host.current?.closest(".chat-user-card")) return;
     if (host.current) setTooltip(emotePreviewPosition(host.current));
   }
 
@@ -58,6 +59,7 @@ export function ChatEmote({
   return (
     <span
       className="chat-emote-hover"
+      data-emote-name={name}
       onBlur={() => setTooltip(null)}
       onFocus={showTooltip}
       onMouseEnter={showTooltip}

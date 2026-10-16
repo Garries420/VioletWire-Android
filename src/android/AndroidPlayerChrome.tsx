@@ -33,7 +33,7 @@ export function AndroidPlayerChrome() {
       const box = host?.getBoundingClientRect();
       // Native video sits above the WebView. Punch only the popup rectangles
       // out of its texture, keeping the rest of the live picture visible.
-      const occlusions = [...document.querySelectorAll(".vw-emote-picker, .chat-emote-tooltip, .chat-user-card")].map(overlay => {
+      const occlusions = [...document.querySelectorAll(".vw-emote-picker, .chat-emote-tooltip, .chat-user-card, .chat-card-label")].map(overlay => {
         const popup = overlay.getBoundingClientRect();
         return { x: popup.x, y: popup.y, width: popup.width, height: popup.height };
       }).filter(p => box && p.width > 0 && p.height > 0 && p.x < box.right && p.x + p.width > box.left && p.y < box.bottom && p.y + p.height > box.top);

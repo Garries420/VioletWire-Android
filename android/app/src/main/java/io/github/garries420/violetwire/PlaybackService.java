@@ -61,6 +61,7 @@ public final class PlaybackService extends MediaSessionService {
     static String compressorRoute() { return nativeCompressor.status(); }
     static double compressorGainDb() { return compressor.appliedGainDb(); }
     static long compressedFrames() { return compressor.processedFrames(); }
+    static float liveSpeed() { return liveSpeedControl == null ? 1f : liveSpeedControl.speed; }
     static long liveTargetOffsetMs() { return liveSpeedControl == null ? androidx.media3.common.C.TIME_UNSET : androidx.media3.common.util.Util.usToMs(liveSpeedControl.getTargetLiveOffsetUs()); }
 
     @Override public void onCreate() {

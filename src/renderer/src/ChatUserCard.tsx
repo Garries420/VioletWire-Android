@@ -1,5 +1,6 @@
 import {
   memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -127,6 +128,47 @@ export function ChatUserCard({
   const [error, setError] = useState<string | null>(null);
   const [position, setPosition] = useState<CardPosition | null>(null);
   const cardRef = useRef<HTMLElement>(null);
+  const [label, setLabel] = useState<{
+    name: string; left: number; top: number;
+  } | null>(null);
+  const labelAnchor = useRef<HTMLElement | null>(null);
+  const labelTimer = useRef<number | undefined>(undefined);
+  const hideLabel = useCallback(() => {
+    view.clearTimeout(labelTimer.current);
+    labelAnchor.current = null;
+    setLabel(null);
+  }, [view]);
+  useEffect(() => {
+    hideLabel();
+    view.addEventListener("resize", hideLabel);
+    return () => {
+      view.clearTimeout(labelTimer.current);
+      view.removeEventListener("resize", hideLabel);
+    };
+  }, [hideLabel, view, selected.login]);
+  const showLabel = (event: React.MouseEvent<HTMLElement>) => {
+    const element = (event.target as Element).closest<HTMLElement>("[data-chat-card-label], [data-emote-name]");
+    if (!element) return;
+    const name = element.dataset.chatCardLabel ?? element.dataset.emoteName;
+    if (!name) return;
+    event.preventDefault();
+    event.stopPropagation();
+    view.clearTimeout(labelTimer.current);
+    labelAnchor.current = element;
+    setLabel(positionLabel(element, name));
+    labelTimer.current = view.setTimeout(hideLabel, 2000);
+  };
+  const positionLabel = (element: HTMLElement, name: string) => {
+    const bounds = element.getBoundingClientRect();
+    const halfWidth = Math.min(160, Math.max(35, name.length * 3.6 + 11));
+    return {
+      name,
+      left: Math.max(halfWidth + 10, Math.min(
+        view.innerWidth - halfWidth - 10, bounds.left + bounds.width / 2,
+      )),
+      top: bounds.top - 8,
+    };
+  };
   const dragOffset = useRef<{ x: number; y: number } | null>(null);
   const messagesHost = useRef<HTMLDivElement>(null);
   // Newest messages sit at the bottom; open there and stay pinned while the
@@ -157,9 +199,10 @@ export function ChatUserCard({
 
   useEffect(() => {
     let cancelled = false;
+    setProfile(null); setError(null);
     const request =
       target.platform === "kick"
-        ? window.desktop.kick.getChatUserProfile(target.login, selected.login)
+        ? window.desktop.kick.getChatUserProfile(target.login, selected.login, selected.displayName)
         : window.desktop.twitch.getChatUserProfile(target.login, selected.login);
     void request
       .then((value) => {
@@ -173,7 +216,7 @@ export function ChatUserCard({
     return () => {
       cancelled = true;
     };
-  }, [selected.login, target.login, target.platform]);
+  }, [selected.login, selected.displayName, target.login, target.platform]);
 
   useLayoutEffect(() => {
     const host = messagesHost.current;
@@ -310,6 +353,7 @@ export function ChatUserCard({
 
   return createPortal(
     <section
+      onClickCapture={showLabel}
       role="dialog"
       aria-modal={isAndroid || undefined}
       aria-label={`${selected.displayName} profile`}
@@ -340,11 +384,19 @@ export function ChatUserCard({
 
         <div className="chat-user-badges">
           {badgeAssets.map((badge) => (
-            <ChatBadge badge={badge} key={badge.key} />
+            <button type="button" className="chat-card-badge" key={badge.key}
+              data-chat-card-label={badge.title} aria-label={badge.title}>
+              <ChatBadge badge={badge} />
+            </button>
           ))}
           {badgeKeys.map((badgeKey) => {
             const badge = badges.get(badgeKey);
-            return badge ? <ChatBadge badge={badge} key={badgeKey} /> : null;
+            return badge ? (
+              <button type="button" className="chat-card-badge" key={badgeKey}
+                data-chat-card-label={badge.title} aria-label={badge.title}>
+                <ChatBadge badge={badge} />
+              </button>
+            ) : null;
           })}
         </div>
 
@@ -412,6 +464,12 @@ export function ChatUserCard({
           onScroll={() => {
             const host = messagesHost.current;
             if (!host) return;
+            // Incoming messages also scroll this host. Follow the emote instead
+            // of dismissing its label before the two-second timer finishes.
+            const anchor = labelAnchor.current;
+            if (anchor && host.contains(anchor)) {
+              setLabel((current) => current ? positionLabel(anchor, current.name) : null);
+            }
             stickToNewest.current =
               host.scrollHeight - host.scrollTop - host.clientHeight < 24;
           }}
@@ -425,6 +483,14 @@ export function ChatUserCard({
             ))
           )}
         </div>
+      {label && createPortal(
+        <div className="violetwire-react-tooltip chat-card-label" role="tooltip"
+          style={{ left: label.left, top: label.top, transform: "translate(-50%, -100%)",
+            maxWidth: `${Math.max(80, Math.min(label.left, view.innerWidth - label.left) * 2 - 16)}px`,
+          }}>
+          {label.name}
+        </div>, root.body,
+      )}
     </section>,
     root.body,
   );

@@ -209,7 +209,7 @@
   min-height: 44px;
 }
 @media (hover: none) {
-  .android:not(.android-tv) .violetwire-react-tooltip {
+  .android:not(.android-tv) .violetwire-react-tooltip:not(.chat-card-label) {
     display: none;
   }
 }

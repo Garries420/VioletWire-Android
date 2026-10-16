@@ -175,7 +175,7 @@ export interface KickApi {
   signOut(): Promise<void>;
   getFollowedChannels(): Promise<KickChannelDetails[]>;
   getEmoteSets(slug: string): Promise<KickEmoteGroup[]>;
-  getChatUserProfile(channel: string, login: string): Promise<ChatUserProfile>;
+  getChatUserProfile(channel: string, login: string, username?: string): Promise<ChatUserProfile>;
   getPinnedChatMessage(channelId: string): Promise<TwitchPinnedChatMessage | null>;
   getChatColor(): Promise<KickChatColorState>;
   updateChatColor(color: string): Promise<KickChatColorState>;

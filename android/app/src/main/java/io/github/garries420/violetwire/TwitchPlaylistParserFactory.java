@@ -43,7 +43,7 @@ final class TwitchPlaylistParserFactory implements HlsPlaylistParserFactory {
                 bytes.write(buffer, 0, length);
             }
             String text = bytes.toString(StandardCharsets.UTF_8.name());
-            TwitchAdFilter.Result result = twitch ? filter.filter(text, lowLatency) : new TwitchAdFilter.Result(text, false);
+            TwitchAdFilter.Result result = twitch ? filter.filter(text, lowLatency) : new TwitchAdFilter.Result(lowLatency ? KickPrefetch.expand(text) : text, false);
             HlsPlaylist playlist = parser.parse(uri, new ByteArrayInputStream(result.playlist.getBytes(StandardCharsets.UTF_8)));
             if (playlist instanceof HlsMediaPlaylist) {
                 HlsMediaPlaylist media = (HlsMediaPlaylist) playlist;

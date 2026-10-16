@@ -11,7 +11,7 @@ final class LivePlaybackTuning {
     private LivePlaybackTuning() {}
     static DefaultLivePlaybackSpeedControl speedControl() {
         return new DefaultLivePlaybackSpeedControl.Builder()
-            .setTargetLiveOffsetIncrementOnRebufferMs(0)
+            .setTargetLiveOffsetIncrementOnRebufferMs(500)
             .setMinPossibleLiveOffsetSmoothingFactor(0.9f)
             .setMaxLiveOffsetErrorMsForUnitSpeed(100).build();
     }
@@ -33,20 +33,20 @@ final class LivePlaybackTuning {
         return position >= 0 && position <= durationMs - 750 ? position : androidx.media3.common.C.TIME_UNSET;
     }
     static int kickTarget(int requestedMs, long segmentMs, int rebufferPenaltyMs) {
-        // Step-down trials sustain 2.5s on 2s chunks; 2.25s starts stalling.
-        // Longer complete chunks need more room for publication/download jitter.
-        long marginMs = segmentMs <= 2500 ? 500 : 1000;
-        return Math.max(requestedMs, (int) Math.min(10000, Math.max(2500, segmentMs + marginMs) + rebufferPenaltyMs));
+        // Kick's in-progress IVS fragment is now consumed progressively. The
+        // encoder's full fragment length no longer imposes a minimum delay.
+        // 1.0s trials ran dry; retain half a second of measured headroom.
+        return (requestedMs <= 3000 ? 1500 : requestedMs) + rebufferPenaltyMs;
     }
     static MediaItem.LiveConfiguration kickConfiguration(int targetMs) {
         return new MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(targetMs)
-            .setMinOffsetMs(Math.max(2000, targetMs - 1000)).setMaxOffsetMs(targetMs + 3000)
+            .setMinOffsetMs(Math.max(750, targetMs - 1000)).setMaxOffsetMs(targetMs + 3000)
             .setMinPlaybackSpeed(0.97f).setMaxPlaybackSpeed(1.03f).build();
     }
     static MediaItem.LiveConfiguration configuration(int targetMs) {
         boolean low = targetMs <= 3000;
         return new MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(targetMs)
             .setMinOffsetMs(low ? 1000 : 3000).setMaxOffsetMs(low ? 4000 : 10000)
-            .setMinPlaybackSpeed(low ? 1f : 0.97f).setMaxPlaybackSpeed(low ? 1.05f : 1.03f).build();
+            .setMinPlaybackSpeed(0.97f).setMaxPlaybackSpeed(low ? 1.05f : 1.03f).build();
     }
 }

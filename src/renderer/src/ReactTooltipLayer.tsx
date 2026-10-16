@@ -85,7 +85,9 @@ function convertNativeTitles(root: ParentNode): void {
 }
 
 function tooltipTarget(eventTarget: EventTarget | null): HTMLElement | null {
-  return asElement(eventTarget)?.closest<HTMLElement>(`[${TOOLTIP_ATTRIBUTE}]`) ?? null;
+  const element = asElement(eventTarget);
+  if (element?.closest(".chat-user-card .chat-user-badges, .chat-user-card [data-emote-name]")) return null;
+  return element?.closest<HTMLElement>(`[${TOOLTIP_ATTRIBUTE}]`) ?? null;
 }
 
 // Measured against the window the tooltip is drawn in. Chat can be in a window
