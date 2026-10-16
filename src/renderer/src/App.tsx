@@ -710,6 +710,7 @@ export function App() {
   const [kickSearchCategories, setKickSearchCategories] = useState<BrowseCategory[]>([]);
   const [kickAccount, setKickAccount] = useState<KickUserAccount | null>(null);
   const [kickAuthBusy, setKickAuthBusy] = useState(false);
+  const [kickAuthReady, setKickAuthReady] = useState(false);
   const [followPending, setFollowPending] = useState(false);
   const [followedRefreshing, setFollowedRefreshing] = useState(false);
   const [kickFollowedChannels, setKickFollowedChannels] = useState<KickChannelDetails[]>([]);
@@ -786,6 +787,7 @@ export function App() {
   const [categoryStreamCursor, setCategoryStreamCursor] = useState<string | undefined>();
   const [categoryStreamsLoading, setCategoryStreamsLoading] = useState(false);
   const [streamMetadata, setStreamMetadata] = useState<StreamMetadata | null>(null);
+  const [metadataRefresh, setMetadataRefresh] = useState(0);
   const [signInStatus, setSignInStatus] = useState("Authorize in your browser, then return to VioletWire to finish.");
   const [playbackSession, setPlaybackSession] =
     useState<PlaybackSessionState>(anonymousPlaybackState);
@@ -2043,7 +2045,7 @@ export function App() {
   ]);
 
   useEffect(() => {
-    if (authState.status !== "signed-in") return;
+    if (isAndroid || authState.status !== "signed-in") return;
     void loadFollowedChannels();
     // Keep the followed sidebar and home grid current: channels go live and
     // offline all the time. Background failures stay silent — a transient
@@ -2255,12 +2257,13 @@ export function App() {
             }
             return;
           }
-          if (platformFilter === "twitch") return;
+          if (isAndroid || platformFilter === "twitch") return;
           return window.desktop.kick.getFollowedChannels().then((channels) => {
             if (!cancelled) setKickFollowedChannels(channels);
           });
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => { if (!cancelled) setKickAuthReady(true); });
     };
     load();
     // Matches the Twitch followed-list cadence so live states stay in step.
@@ -2359,7 +2362,7 @@ export function App() {
       window.clearInterval(refresh);
       window.removeEventListener("android-stream-refresh", load);
     };
-  }, [activeChannel, kickAccount]);
+  }, [activeChannel, kickAccount, metadataRefresh]);
 
   useEffect(() => {
     if (!activeChannel || authState.status !== "signed-in") return;
@@ -2388,7 +2391,7 @@ export function App() {
       cancelled = true;
       window.clearInterval(refresh);
     };
-  }, [activeChannel, authState.status]);
+  }, [activeChannel, authState.status, metadataRefresh]);
 
   useEffect(() => {
     if (nativeControlsTimer.current !== null) {
@@ -2500,7 +2503,7 @@ export function App() {
   const activeChannelFollowState = useMemo<boolean | null>(() => {
     if (!activeChannel) return null;
     const target = parseChannelKey(activeChannel);
-    if (target.platform === "kick" && kickAccount === null) return false;
+    if ((target.platform === "kick" && kickAccount === null) || (target.platform === "twitch" && authState.status !== "signed-in")) return false;
     const metadataMatchesChannel =
       streamMetadata?.login.toLowerCase() === target.login.toLowerCase();
     if (metadataMatchesChannel && typeof streamMetadata.isFollowed === "boolean") {
@@ -2519,8 +2522,8 @@ export function App() {
     return signedIn ? null : false;
   }, [activeChannel, authState.status, followedChannels, kickAccount, kickFollowedChannels, streamMetadata]);
   const activeChannelIsFollowed = activeChannelFollowState === true;
-  const activeChannelSubscribed = streamMetadata?.subscription?.isSubscribed === true && (!chatIsKick || kickAccount !== null);
-  useEffect(() => { setDismissedRestrictions([]); }, [chatChannel, kickAccount?.id]);
+  const activeChannelSubscribed = streamMetadata?.subscription?.isSubscribed === true && (chatIsKick ? kickAccount !== null : authState.status === "signed-in");
+  useEffect(() => { setDismissedRestrictions([]); }, [chatChannel, kickAccount?.id, authState.account?.id]);
 
 
   useEffect(
@@ -2972,6 +2975,7 @@ export function App() {
     setSettingsOpen(false);
     setError(null);
     setStreamMetadata(null);
+    setMetadataRefresh(value => value + 1);
     setDismissedRestrictions([]);
     resetChatFeed();
     setReplyingTo(null);
@@ -3053,10 +3057,10 @@ export function App() {
   // The Android activity routes Back through React so UI and native playback
   // always close together. Re-register each render to use current navigation.
   useEffect(() => {
-    if (isAndroid) window.dispatchEvent(new CustomEvent("android-auth-changed", {
+    if (isAndroid && !authBusy && kickAuthReady) window.dispatchEvent(new CustomEvent("android-auth-changed", {
       detail: { twitch: authState.status === "signed-in", kick: kickAccount !== null },
     }));
-  }, [isAndroid, authState.status, kickAccount]);
+  }, [isAndroid, authState.status, kickAccount, authBusy, kickAuthReady]);
   useEffect(() => {
     if (!isAndroid) return;
     const back = (event: Event) => {
@@ -3393,9 +3397,11 @@ export function App() {
     event.preventDefault();
     if (!chatChannel || !chatInput.trim()) return;
     const platform = parseChannelKey(chatChannel).platform;
-    if (platform === "kick") {
-      interactWithChat();
-      if (chatBlocked) { chatSender.showError(chatRestrictions.followersOnly && activeChannelFollowState === false ? "Follow this channel before sending a message." : "Subscribe to this channel before sending a message."); return; }
+    interactWithChat();
+    if (chatBlocked) {
+      chatSender.showError(chatRestrictions.followersOnly && activeChannelFollowState === false
+        ? "Follow this channel before sending a message." : "Subscribe to this channel before sending a message.");
+      return;
     }
     if (platform === "kick" ? kickAccount === null : authState.status !== "signed-in") {
       chatSender.showError(
@@ -3424,14 +3430,14 @@ export function App() {
   const restrictionParts = chatRestrictionParts(chatRestrictions, activeChannelFollowState, activeChannelSubscribed, formatFollowDuration);
   const membershipWarnings = restrictionParts.filter(part => part.key === "followers" || part.key === "subscribers").map(part => part.key);
   const chatRestrictionLabel = restrictionParts
-    .filter(part => activeChatPlatform !== "kick" || !dismissedRestrictions.includes(part.key))
+    .filter(part => !dismissedRestrictions.includes(part.key))
     .map(part => part.text).join(" · ");
   const chatBlocked = (chatRestrictions.followersOnly && activeChannelFollowState === false) ||
-    (activeChatPlatform === "kick" && chatRestrictions.subscribersOnly && streamMetadata?.subscription?.isSubscribed === false);
+    (chatRestrictions.subscribersOnly && streamMetadata?.subscription?.isSubscribed === false);
   const chatSignedIn = activeChatPlatform === "kick" ? kickAccount !== null : authState.status === "signed-in";
-  const singleChatDisabled = !chatSignedIn || (chatBlocked && activeChatPlatform !== "kick");
+  const singleChatDisabled = !chatSignedIn;
   function interactWithChat() {
-    if (activeChatPlatform === "kick") setDismissedRestrictions(current =>
+    setDismissedRestrictions(current =>
       current.filter(mode => !membershipWarnings.includes(mode)));
   }
   // Each service signs in on its own, so the prompt names the one this chat needs.
@@ -5209,9 +5215,8 @@ export function App() {
                           <Lock size={13} aria-hidden="true" />
                           <span>
                             {chatRestrictionLabel}
-                            {chatBlocked && activeChatPlatform === "twitch" && ". Follow on Twitch to chat."}
                           </span>
-                          {activeChatPlatform === "kick" && <button className="chat-restriction-close" aria-label="Dismiss chat restrictions" onClick={() => setDismissedRestrictions(restrictionParts.map(part => part.key))} type="button"><X size={15} /></button>}
+                          <button className="chat-restriction-close" aria-label="Dismiss chat restrictions" onClick={() => setDismissedRestrictions(restrictionParts.map(part => part.key))} type="button"><X size={15} /></button>
                         </div>
                       )}
                       {replyingTo && (
@@ -5308,7 +5313,7 @@ export function App() {
                                   channelName={streamMetadata?.displayName ?? activeChannel ?? "Channel"}
                                   onClose={() => setEmotePickerOpen(false)}
                                   onSelect={(name) => {
-                                    if (activeChatPlatform === "kick") interactWithChat();
+                                    interactWithChat();
                                     setChatInput((current) =>
                                       `${current}${current && !current.endsWith(" ") ? " " : ""}${name} `,
                                     );

@@ -15,6 +15,9 @@ import androidx.media3.session.MediaSessionService;
 public final class PlaybackService extends MediaSessionService {
     private static ExoPlayer sharedPlayer;
     private static final StreamCompressor compressor = new StreamCompressor();
+    private static boolean compressionRequested;
+    private static final NativeAudioCompressor nativeCompressor = new NativeAudioCompressor(PlaybackService::updateCompressorRoute);
+    private static void updateCompressorRoute() { compressor.enabled(compressionRequested && !nativeCompressor.active()); }
     private static PlaybackService activeService;
     private static androidx.media3.exoplayer.DefaultLivePlaybackSpeedControl liveSpeedControl;
     private MediaSession session;
@@ -39,11 +42,19 @@ public final class PlaybackService extends MediaSessionService {
                 .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true);
             sharedPlayer.setHandleAudioBecomingNoisy(true);
             sharedPlayer.setWakeMode(C.WAKE_MODE_NETWORK);
+            // AudioTrack session IDs change on reconnect, quality or output changes.
+            // Bind the effect to the actual output session, never global session 0.
+            sharedPlayer.addListener(new androidx.media3.common.Player.Listener() {
+                @Override public void onAudioSessionIdChanged(int id) { nativeCompressor.session(id); }
+            });
+            nativeCompressor.session(sharedPlayer.getAudioSessionId());
         }
         return sharedPlayer;
     }
-    static void compression(boolean enabled) { compressor.enabled(enabled); }
-    static boolean compression() { return compressor.enabled(); }
+    static void compression(boolean enabled) { compressionRequested = enabled; nativeCompressor.enabled(enabled); updateCompressorRoute(); }
+    static boolean compression() { return compressionRequested; }
+    static boolean nativeCompressionActive() { return nativeCompressor.active(); }
+    static String compressorRoute() { return nativeCompressor.status(); }
     static double compressorGainDb() { return compressor.appliedGainDb(); }
     static long compressedFrames() { return compressor.processedFrames(); }
     static long liveTargetOffsetMs() { return liveSpeedControl == null ? androidx.media3.common.C.TIME_UNSET : androidx.media3.common.util.Util.usToMs(liveSpeedControl.getTargetLiveOffsetUs()); }
@@ -59,14 +70,14 @@ public final class PlaybackService extends MediaSessionService {
     @Override public void onTaskRemoved(Intent rootIntent) { stopSelf(); }
     public static void endPlayback(Context context) {
         if (activeService != null) activeService.releasePlayback();
-        else if (sharedPlayer != null) { sharedPlayer.release(); sharedPlayer = null; }
+        else if (sharedPlayer != null) { nativeCompressor.release(); sharedPlayer.release(); sharedPlayer = null; updateCompressorRoute(); }
         context.stopService(new Intent(context, PlaybackService.class));
     }
     private void releasePlayback() {
         if (session != null) { session.release(); session = null; }
         if (ownedPlayer != null) {
             if (sharedPlayer == ownedPlayer) sharedPlayer = null;
-            ownedPlayer.release(); ownedPlayer = null;
+            nativeCompressor.release(); ownedPlayer.release(); ownedPlayer = null; updateCompressorRoute();
         }
     }
     @Override public void onDestroy() {

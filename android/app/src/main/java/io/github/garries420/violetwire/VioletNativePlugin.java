@@ -314,7 +314,7 @@ public class VioletNativePlugin extends Plugin {
                     // A genuine underrun can leave old fragments playing behind
                     // chat. Rejoin live once data returns, with a cooldown. User
                     // pauses, VODs and ad/proxy transitions keep their own state.
-                    if (recovered && playbackChannel != null && playbackChannel.matches("[a-z0-9_]{1,25}")
+                    if (recovered && playbackChannel != null && (playbackChannel.matches("[a-z0-9_]{1,25}") || playbackChannel.startsWith("kick:"))
                         && !vodPlayback && !userPaused && !adBlocked && adFallback == null
                         && activeProxy == null && !"chat_only".equals(selectedQuality)
                         && LivePlaybackTuning.shouldResync(targetOffsetMs, player.getCurrentLiveOffset(), now - lastLiveResyncMs)) {
@@ -326,6 +326,12 @@ public class VioletNativePlugin extends Plugin {
             @Override public void onEvents(Player current, Player.Events events) { report(); }
             @Override public void onTimelineChanged(androidx.media3.common.Timeline timeline, int reason) {
                 if (pendingAdResume && !userPaused) { pendingAdResume = false; pendingLiveResync = false; player.seekToDefaultPosition(); }
+                // Completed-segment Kick feeds can start on an old CDN snapshot.
+                // Once a fresh snapshot exposes enough media, recover the chosen
+                // live target without reconnecting or disturbing user pauses.
+                if (playbackChannel != null && playbackChannel.startsWith("kick:") && !vodPlayback && !userPaused
+                    && LivePlaybackTuning.shouldResync(targetOffsetMs, player.getCurrentLiveOffset(),
+                        android.os.SystemClock.elapsedRealtime() - lastLiveResyncMs)) pendingLiveResync = true;
                 tryLiveResync();
             }
             @Override public void onTracksChanged(Tracks tracks) { applyQuality(); }
@@ -831,8 +837,9 @@ public class VioletNativePlugin extends Plugin {
         values.put("Live target", vodPlayback ? "VOD" : liveTarget == C.TIME_UNSET ? "—" : String.format(java.util.Locale.ROOT, "%.2fs", liveTarget / 1000d));
         values.put("Media transport", downloadId != null ? "Saved on device" : activeProxy != null ? "Temporary ad proxy" : playbackChannel != null && playbackChannel.startsWith("kick:") ? "Direct Kick CDN" : "Direct Twitch CDN");
         values.put("Audio compressor", PlaybackService.compression() ? "Enabled" : "Disabled");
-        values.put("Compressor gain", String.format(java.util.Locale.ROOT, "%.1f dB", PlaybackService.compressorGainDb()));
-        values.put("Compressed PCM frames", String.valueOf(PlaybackService.compressedFrames()));
+        values.put("Compressor route", PlaybackService.compressorRoute());
+        values.put("Compressor gain", PlaybackService.nativeCompressionActive() ? "Managed by Android multiband effect" : String.format(java.util.Locale.ROOT, "%.1f dB", PlaybackService.compressorGainDb()));
+        values.put("PCM fallback frames", String.valueOf(PlaybackService.compressedFrames()));
         values.put("Playback engine", "AndroidX Media3 / ExoPlayer"); return values;
     }
     private void report() {

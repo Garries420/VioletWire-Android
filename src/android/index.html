@@ -11,8 +11,22 @@
       content="default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss://irc-ws.chat.twitch.tv:443 wss://*.pusher.com; media-src 'self' blob: https:; img-src 'self' data: https:; font-src 'self'"
     />
     <title>VioletWire Android</title>
+    <style>
+      html,body { margin:0; background:#100d15; }
+      #android-startup { position:fixed; inset:0; z-index:10000; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:24px; padding:24px; background:#100d15; color:#c4a7ff; font-family:system-ui,sans-serif; opacity:1; transition:opacity 350ms ease; }
+      #android-startup img { width:min(58vw,240px); height:auto; }
+      #android-startup p:empty { display:none; }
+      #android-startup p { margin:0; text-align:center; font-size:14px; }
+      #android-startup button { border:0; border-radius:8px; padding:12px 24px; color:#fff; background:#9147ff; font:inherit; }
+      #android-startup.startup-finished { opacity:0; pointer-events:none; }
+      @media(prefers-reduced-motion:reduce) { #android-startup { transition-duration:100ms; } }
+    </style>
   </head>
   <body>
+    <div id="android-startup" role="status" aria-label="Loading VioletWire Android">
+      <img src="../renderer/src/assets/violetwire-android-icon.png" alt="VioletWire Android" width="512" height="512" />
+      <p></p><button type="button" hidden>Try again</button>
+    </div>
     <div id="root"></div>
     <script type="module" src="/main.tsx"></script>
   </body>

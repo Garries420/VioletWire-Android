@@ -44,9 +44,9 @@ final class TwitchPlaylistParserFactory implements HlsPlaylistParserFactory {
                 HlsMediaPlaylist media = (HlsMediaPlaylist) playlist;
                 if (lowLatency && !media.hasEndTag && media.playlistType == HlsMediaPlaylist.PLAYLIST_TYPE_UNKNOWN) {
                     long reloadDurationUs = media.targetDurationUs;
-                    if (twitch && text.contains("#EXT-X-TWITCH-PREFETCH:") && media.partTargetDurationUs == androidx.media3.common.C.TIME_UNSET) {
-                        // Twitch advertises a 6s upper bound for its usual 2s
-                        // fragments. Media3 otherwise polls every 6s and starves
+                    if (media.partTargetDurationUs == androidx.media3.common.C.TIME_UNSET) {
+                        // Twitch and Kick advertise a 6s upper bound for usual
+                        // 2s fragments. Media3 otherwise polls every 6s and starves
                         // near the live edge. This local scheduling field uses
                         // half the observed fragment length (at least 1s), so
                         // reduce stalls caused by the phase of the first poll.

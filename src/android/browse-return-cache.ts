@@ -10,6 +10,7 @@ export class BrowseReturnCache<T> {
     this.entries.set(key, { data, scrollTop, expiresAt });
     if (this.entries.size > 8) this.entries.delete(this.entries.keys().next().value!);
   }
+  invalidate(key: string) { this.entries.delete(key); }
   setScroll(key: string, scrollTop: number) {
     const entry = this.entries.get(key);
     if (entry) entry.scrollTop = scrollTop;

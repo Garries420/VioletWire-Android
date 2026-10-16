@@ -780,9 +780,9 @@ export class TwitchService {
       } catch (error) {
         if (error instanceof TwitchRequestError && error.status === 404) {
           metadata.subscription = { isSubscribed: false };
-        } else {
-          throw error;
         }
+        // Missing subscription scope or a transient refusal leaves membership
+        // unknown; still return the channel and independently resolved follow.
       }
     }
     return metadata;

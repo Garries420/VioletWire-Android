@@ -1,6 +1,7 @@
 import { AndroidGameCard } from "./AndroidGameCard";
 import { AndroidStreamMenu } from "./AndroidStreamMenu";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { finishStartup } from "./startup";
 import { BrowseReturnCache } from "./browse-return-cache";
 import {
   TrendingUp,
@@ -61,6 +62,7 @@ function GamesIcon() {
 }
 export function AndroidHome() {
   const generation = useRef(0);
+  const listRequestPending = useRef(false);
   const viewIdentity = useRef("");
   const followedSnapshot = useRef<MobileChannel[]>([]);
   const feed = useRef<HTMLDivElement>(null);
@@ -71,7 +73,7 @@ export function AndroidHome() {
   }>());
 
   const [chatVisible, setChatVisible] = useState(true);
-  const [accounts, setAccounts] = useState({ twitch: false, kick: false });
+  const [accounts, setAccounts] = useState<{ twitch: boolean; kick: boolean } | null>(null);
   const [libraryPage, setLibraryPage] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [page, setPage] = useState<Page>("following"),
@@ -95,9 +97,9 @@ export function AndroidHome() {
   const identity = JSON.stringify([page, provider, offline, search, query, tab, category?.id, accounts]);
   const canRemember = !search && (page === "games" || page === "popular");
   useLayoutEffect(() => {
-    if (hidden || !canRemember || busy || viewIdentity.current !== identity) return;
+    if (hidden || !canRemember || busy || error || viewIdentity.current !== identity) return;
     returnCache.current.remember(identity, { channels, categories, videos, cursor }, feedScroll.current);
-  }, [identity, hidden, canRemember, busy, channels, categories, videos, cursor]);
+  }, [identity, hidden, canRemember, busy, error, channels, categories, videos, cursor]);
   useLayoutEffect(() => {
     if (!hidden && feed.current && restoreScroll.current !== null) {
       feed.current.scrollTop = restoreScroll.current;
@@ -117,10 +119,12 @@ export function AndroidHome() {
     return () => window.removeEventListener("android-watch-live", leaving, true);
   }, [hidden, canRemember, identity]);
   const loginRequired =
-    !search && page === "following" && !accounts.twitch && !accounts.kick;
+    !search && page === "following" && accounts !== null && !accounts.twitch && !accounts.kick;
   useEffect(() => {
-    const auth = (event: Event) =>
-      setAccounts((event as CustomEvent<typeof accounts>).detail);
+    const auth = (event: Event) => {
+      const next = (event as CustomEvent<NonNullable<typeof accounts>>).detail;
+      setAccounts(old => old?.twitch === next.twitch && old.kick === next.kick ? old : next);
+    };
     const route = (event: Event) =>
       setLibraryPage((event as CustomEvent<string | null>).detail);
     const metadata = (event: Event) => setChatVisible((event as CustomEvent<{chatVisible:boolean}>).detail.chatVisible);
@@ -159,7 +163,7 @@ export function AndroidHome() {
     const sync = () => {
       setHidden(!!document.querySelector(".app-shell.android-stream-view"));
       const open = !!document.querySelector(".settings-modal-backdrop");
-      if (settings && !open) setRefresh((r) => r + 1);
+      if (settings && !open && !listRequestPending.current) setRefresh((r) => r + 1);
       settings = open;
     };
     const observer = new MutationObserver(sync);
@@ -178,7 +182,7 @@ export function AndroidHome() {
   }, []);
   useEffect(() => {
     const timer = setInterval(() => {
-      if (!document.hidden) setRefresh((r) => r + 1);
+      if (!document.hidden && !listRequestPending.current) setRefresh((r) => r + 1);
     }, 60000);
     return () => clearInterval(timer);
   }, []);
@@ -261,10 +265,10 @@ export function AndroidHome() {
     }
     if (page === "following") {
       const results = await Promise.allSettled([
-        accounts.twitch
+        accounts?.twitch
           ? window.desktop.twitch.getFollowedChannels()
           : Promise.resolve([]),
-        accounts.kick
+        accounts?.kick
           ? window.desktop.kick.getFollowedChannels()
           : Promise.resolve([]),
       ]);
@@ -330,7 +334,7 @@ export function AndroidHome() {
   };
   useEffect(() => {
     const request = ++generation.current;
-    if (hidden || (page === "saved" && !search)) return;
+    if (!accounts || hidden || (page === "saved" && !search)) return;
     const cached = canRemember ? returnCache.current.restore(identity) : undefined;
     if (cached) {
       viewIdentity.current = identity;
@@ -352,6 +356,7 @@ export function AndroidHome() {
     let cancelled = false;
     void Promise.resolve().then(() => {
       if (cancelled) return;
+      listRequestPending.current = true;
       setBusy(true);
       setError("");
       if (viewIdentity.current !== identity || canRemember) {
@@ -374,38 +379,34 @@ export function AndroidHome() {
           if (!cancelled) setError(String(e.message ?? e));
         })
         .finally(() => {
-          if (!cancelled) setBusy(false);
+          if (!cancelled) { listRequestPending.current = false; setBusy(false); }
         });
     });
     return () => {
       cancelled = true;
+      listRequestPending.current = false;
       generation.current = request + 1;
     };
     // The request generation is determined by these visible navigation parameters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    page,
-    provider,
-    offline,
-    search,
-    query,
-    tab,
-    category,
-    refresh,
-    hidden,
-    accounts,
-  ]);
+  }, [identity, refresh, hidden]);
+  useEffect(() => {
+    if (accounts && page === "following" && !busy && viewIdentity.current === identity)
+      void finishStartup();
+  }, [accounts, page, busy, identity, channels]);
   const more = async () => {
-    if (!cursor || busy) return;
+    if (!cursor || listRequestPending.current) return;
     const request = generation.current;
-    setBusy(true);
+    const after = cursor;
+    listRequestPending.current = true;
+    setBusy(true); setError("");
     try {
-      const p = await load(cursor, request);
+      const p = await load(after, request);
       if (request !== generation.current) return;
       if (search && tab === "Videos")
         setVideos((old) => [...old, ...(p.items as Vod[])]);
       else if (!search && page === "games" && !category)
-        setCategories((old) => [...old, ...(p.items as MobileGame[])]);
+        setCategories(old => [...old, ...(p.items as MobileGame[]).filter(item => !old.some(existing => existing.id === item.id))]);
       else
         setChannels((old) => {
           const combined = [...old, ...(p.items as MobileChannel[])].filter(
@@ -413,13 +414,13 @@ export function AndroidHome() {
           );
           return search && tab === "Channels"
             ? rankChannels(combined, query)
-            : combined.sort((a, b) => b.viewers - a.viewers);
+            : combined;
         });
-      setCursor(p.cursor);
+      setCursor(p.cursor === after ? undefined : p.cursor);
     } catch (e) {
       if (request === generation.current) setError(String(e));
     } finally {
-      if (request === generation.current) setBusy(false);
+      if (request === generation.current) { listRequestPending.current = false; setBusy(false); }
     }
   };
   const navigate = (next: Page) => {
@@ -550,7 +551,10 @@ export function AndroidHome() {
       }} aria-hidden={libraryPage === "profile"}>
         {error && !loginRequired && (
           <p role="alert" className="android-library-error">
-            {error}
+            {error} <button type="button" onClick={() => {
+              if (cursor) void more();
+              else { returnCache.current.invalidate(identity); setRefresh(r => r + 1); }
+            }}>Retry</button>
           </p>
         )}
         {loginRequired ? (
@@ -619,7 +623,7 @@ export function AndroidHome() {
                 <button
                   aria-label="Refresh following"
                   disabled={busy}
-                  onClick={() => setRefresh((r) => r + 1)}
+                  onClick={() => setRefresh(r => r + 1)}
                 >
                   <RefreshCw size={18} className={busy ? "spin" : undefined} />
                 </button>
@@ -806,7 +810,7 @@ export function AndroidHome() {
                 disabled={busy}
                 onClick={() => void more()}
               >
-                Load more
+                {busy ? "Loading…" : "Load more"}
               </button>
             )}
           </>

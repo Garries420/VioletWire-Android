@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ChatUserListEntry, ChatUserRole } from "../shared/chat-content";
 import { mobileGql } from "./mobile-discovery";
 
-const login = z.object({ login: z.string().regex(/^[a-z0-9_]{1,25}$/i) });
+const login = z.object({ login: z.string().regex(/^[a-z0-9_]{1,25}$/i).nullish() });
 const rosterSchema = z.object({
   broadcasters: z.array(login).nullish(), moderators: z.array(login).nullish(),
   vips: z.array(login).nullish(), viewers: z.array(login).nullish(),
@@ -15,6 +15,7 @@ export function parseViewerRoster(value: unknown, channel: string): ViewerRoster
   const seen = new Set<string>();
   for (const [key, role] of [["broadcasters", "broadcaster"], ["moderators", "moderator"], ["vips", "vip"], ["viewers", "chatter"]] as const) {
     for (const user of roster[key] ?? []) {
+      if (!user.login) continue;
       const name = user.login.toLowerCase();
       if (seen.has(name)) continue;
       seen.add(name);
@@ -28,8 +29,9 @@ export function parseViewerRoster(value: unknown, channel: string): ViewerRoster
 }
 export async function loadViewerRoster(channel: string): Promise<ViewerRoster> {
   const result = await mobileGql(
-    "query ViewerRoster($login:String!){user(login:$login){channel{chatters{count broadcasters{login} moderators{login} vips{login} viewers{login}}}}}",
+    "query ViewerRoster($login:String!){user(login:$login,lookupType:ALL){channel{chatters{count broadcasters{login} moderators{login} vips{login} viewers{login}}}}}",
     { login: channel.replace(/^twitch:/, "") },
+    "kd1unb4b3q4t58fwlpcbzcbnm76a8fp",
   );
   const parsed = z.object({user:z.object({channel:z.object({chatters:z.unknown()})})}).parse(result);
   return parseViewerRoster(parsed.user.channel.chatters, channel);

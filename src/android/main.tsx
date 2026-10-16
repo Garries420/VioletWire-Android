@@ -19,11 +19,12 @@ import { AndroidPlayerChrome } from "./AndroidPlayerChrome";
 import { AndroidLibrary } from "./AndroidLibrary";
 import { AndroidHome } from "./AndroidHome";
 import { AndroidUpdateNotice } from "./AndroidUpdateNotice";
+import { startupFailed } from "./startup";
 
 window.desktop = androidPlatform;
 window.violetwireRuntime = { platform: "android" };
 document.documentElement.classList.add("android");
-document.getElementById("root")!.textContent = "Starting VioletWire Android…";
+
 installDpadNavigation();
 
 async function start() {
@@ -80,6 +81,5 @@ async function start() {
   void androidUpdates.check();
 }
 void start().catch((error) => {
-  document.getElementById("root")!.textContent =
-    `VioletWire could not start: ${String(error)}`;
+  startupFailed();
 });

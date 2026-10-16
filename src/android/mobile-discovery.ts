@@ -58,11 +58,12 @@ const streamFields =
 export async function mobileGql(
   query: string,
   variables: unknown,
+  clientId = "kd1unb4b3q4t58fwlpcbzcbnm76a8fp",
 ): Promise<Record<string, unknown>> {
   const r = await nativeFetch("https://gql.twitch.tv/gql", {
     method: "POST",
     headers: {
-      "Client-ID": "kimne78kx3ncx6brgo4mv6wki5h1ko",
+      "Client-ID": clientId,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ query, variables }),
