@@ -16,13 +16,15 @@ export const kickLivestreamSchema = z.object({
   session_title: z.string().nullish(),
   created_at: z.string().nullish(),
   start_time: z.string().nullish(),
-  categories: z.array(z.object({ name: z.string().nullish() })).optional(),
+  language: z.string().nullish(), is_mature: z.boolean().nullish(), tags: z.array(z.string()).nullish(),
+  categories: z.array(z.object({ name: z.string().nullish(), tags: z.array(z.string()).nullish() })).optional(),
 });
 
 export const kickChannelSchema = z.object({
   id: z.number().nullish(),
   slug: z.string().nullish(),
   user_id: z.number().nullish(),
+  followers_count: z.union([z.number(), z.string().regex(/^\d+$/).transform(Number)]).nullish(),
   user: z
     .object({
       id: z.number().nullish(),
@@ -230,6 +232,9 @@ export interface KickChannel {
   slug: string;
   displayName: string;
   profileImageUrl: string;
+  followers?: number;
+  description?: string;
+  tags?: string[];
   /** Needed to subscribe to the channel's chat; absent means chat is unavailable. */
   chatroomId?: string;
   /** Whether the signed-in account follows this channel; undefined if unknown. */

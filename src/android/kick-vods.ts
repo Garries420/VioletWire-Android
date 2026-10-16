@@ -86,14 +86,15 @@ export async function loadKickVodProfile(
 ): Promise<VodProfile> {
   const [channel, payload] = await Promise.all([
     service.getChannel(slug),
-    service.getVideos(slug),
+    service.getVideos(slug).catch(() => []),
   ]);
   if (!channel) throw new Error("Kick channel was not found.");
   return {
     login: `kick:${slug}`,
     displayName: channel.displayName,
     image: channel.profileImageUrl,
-    description: channel.title ?? channel.category ?? "",
+    description: channel.description ?? "",
+    followers: channel.followers,
     live: channel.isLive,
     viewers: channel.viewerCount,
     videos: parseKickVods(payload, {

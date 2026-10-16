@@ -28,17 +28,17 @@ export function AndroidPlayerChrome() {
         mini ? ".android-floating-video" : ".player-host.hls-surface-host",
       );
       const modal = document.querySelector(
-        '[role="dialog"]:not(.vw-emote-picker):not(.android-points-sheet), .settings-modal-backdrop, .android-library-backdrop, .top-search-results',
+        '[role="dialog"]:not(.vw-emote-picker):not(.android-points-sheet):not(.chat-user-card), .settings-modal-backdrop, .android-library-backdrop, .top-search-results',
       );
       const box = host?.getBoundingClientRect();
-      const covered = [...document.querySelectorAll(".vw-emote-picker, .chat-emote-tooltip")].some((overlay) => {
+      // Native video sits above the WebView. Punch only the popup rectangles
+      // out of its texture, keeping the rest of the live picture visible.
+      const occlusions = [...document.querySelectorAll(".vw-emote-picker, .chat-emote-tooltip, .chat-user-card")].map(overlay => {
         const popup = overlay.getBoundingClientRect();
-        return Boolean(box && popup.left < box.right && popup.right > box.left && popup.top < box.bottom && popup.bottom > box.top);
-      });
-      const visible = Boolean(
-        box && box.width > 1 && box.height > 1 && !modal && !covered,
-      );
-      const next = `${box?.x},${box?.y},${box?.width},${box?.height},${visible},${window.innerWidth},${mini}`;
+        return { x: popup.x, y: popup.y, width: popup.width, height: popup.height };
+      }).filter(p => box && p.width > 0 && p.height > 0 && p.x < box.right && p.x + p.width > box.left && p.y < box.bottom && p.y + p.height > box.top);
+      const visible = Boolean(box && box.width > 1 && box.height > 1 && !modal);
+      const next = JSON.stringify([box?.x, box?.y, box?.width, box?.height, visible, window.innerWidth, mini, occlusions]);
       if (next !== previous) {
         previous = next;
         void VioletNative.bounds({
@@ -49,6 +49,7 @@ export function AndroidPlayerChrome() {
           mini: Boolean(mini),
           viewportWidth: window.innerWidth,
           visible,
+          occlusions,
         }).catch(notice);
       }
       frame = requestAnimationFrame(update);

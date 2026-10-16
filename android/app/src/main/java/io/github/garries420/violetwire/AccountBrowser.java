@@ -187,8 +187,9 @@ final class AccountBrowser {
                     handler.postDelayed(this, 250); return;
                 }
                 // JSON quoting protects all message text, slugs, and credentials.
-                String script = "(()=>{const key=" + JSONObject.quote(key) + ";window[key]=null;fetch(" + JSONObject.quote("https://kick.com" + path) +
+                String script = "(()=>{const key=" + JSONObject.quote(key) + ";window[key]=null;fetch(" + JSONObject.quote((path.equals("/viewer/v1/token") ? "https://websockets.kick.com" : "https://kick.com") + path) +
                     ",{method:" + JSONObject.quote(method) + ",credentials:'include',redirect:'error',headers:{Accept:'application/json','Content-Type':'application/json','x-app-platform':'web'" +
+                    (path.equals("/viewer/v1/token") ? ",\"X-CLIENT-TOKEN\":\"e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823\"" : "") +
                     (token.isEmpty() ? "" : ",Authorization:" + JSONObject.quote("Bearer " + token)) + "},body:" + (body == null ? "undefined" : JSONObject.quote(body)) +
                     "}).then(async r=>{window[key]=JSON.stringify({status:r.status,data:await r.text()})}).catch(()=>{window[key]=JSON.stringify({status:0,data:''})})})()";
                 view.evaluateJavascript(script, ignored -> pollResult(view, key, deadline, callback));

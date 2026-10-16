@@ -65,6 +65,7 @@ interface VioletNativePlugin {
     viewportWidth: number;
     visible: boolean;
     mini?: boolean;
+    occlusions?: { x: number; y: number; width: number; height: number }[];
   }): Promise<void>;
   focusPlayer(): Promise<void>;
   fullscreen(options: { value: boolean }): Promise<void>;
@@ -115,9 +116,8 @@ export const nativeFetch: typeof fetch = async (input, init = {}) => {
     url.protocol !== "https:" ||
     url.username ||
     url.password ||
-    !allowed.some(
-      (host) => url.hostname === host || url.hostname.endsWith(`.${host}`),
-    )
+    !(allowed.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`)) ||
+      (init.method === "HEAD" && url.hostname === "static-cdn.jtvnw.net" && /^\/previews-ttv\/live_user_[a-z0-9_]+-(?:320x180|640x360|1920x1080)\.jpg$/.test(url.pathname)))
   ) {
     throw new Error("The requested address is not a secure provider endpoint.");
   }

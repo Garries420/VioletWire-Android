@@ -35,6 +35,7 @@ export class AndroidAccountSessions {
     }
   }
   playbackToken(): string | undefined { return this.playback?.token; }
+  kickAccountId(): string | undefined { return this.kick?.account.id; }
   hasKickAccount(): boolean { return this.kick !== null; }
   playbackState(): PlaybackSessionState { return { linked: this.playback !== null, login: this.playback?.login }; }
   async linkPlayback(): Promise<PlaybackSessionState> {

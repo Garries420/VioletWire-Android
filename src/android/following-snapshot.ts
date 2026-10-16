@@ -30,6 +30,7 @@ export function mergeFollowing(old: MobileChannel[], fresh: MobileChannel[]) {
   // Keep existing cards in place while people are reading. New live channels
   // append silently; offline channels leave the live tab without clearing it.
   return [...old.filter(channel => next.has(channel.key)).map(channel => ({ ...channel, ...next.get(channel.key),
+    startedAt: next.get(channel.key)?.startedAt ?? channel.startedAt, tags: next.get(channel.key)?.tags ?? channel.tags,
     thumbnail: next.get(channel.key)?.thumbnail ?? channel.thumbnail, image: next.get(channel.key)?.image || channel.image })),
     ...fresh.filter(channel => !old.some(previous => previous.key === channel.key))];
 }

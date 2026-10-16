@@ -123,6 +123,9 @@ export interface KickChannelResult {
 }
 
 export interface KickChannelDetails extends KickChannelResult {
+  followers?: number;
+  description?: string;
+  tags?: string[];
   chatroomId?: string;
   following?: boolean;
   subscribed?: boolean;

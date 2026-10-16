@@ -15,7 +15,7 @@ const rewardSchema = z.object({ id: z.string(), title: z.string().optional(), ty
 const contextSchema = z.object({ community: z.object({ id: z.string(), channel: z.object({
   self: z.object({ communityPoints: z.object({ balance: z.number(), availableClaim: z.object({ id: z.string() }).nullish() }).nullish() }).nullish(),
   communityPointsSettings: z.object({ isEnabled: z.boolean(), name: z.string().nullish(), image: picture,
-    customRewards: z.array(rewardSchema), automaticRewards: z.array(rewardSchema) }).nullish(),
+    customRewards: z.array(z.unknown()).nullish(), automaticRewards: z.array(z.unknown()).nullish() }).nullish(),
 }) }).nullish() });
 export type PointsReward = z.infer<typeof rewardSchema> & { automatic: boolean };
 export interface PointsContext {
@@ -23,15 +23,23 @@ export interface PointsContext {
   claimId?: string; enabled: boolean; rewards: PointsReward[];
 }
 export function parsePointsContext(data: unknown): PointsContext {
-  const channel = contextSchema.parse(data).community;
+  const parsed = contextSchema.safeParse(data);
+  if (!parsed.success) throw new Error("Twitch returned incomplete channel point details. Try again.");
+  const channel = parsed.data.community;
   if (!channel) throw new Error("This Twitch channel could not be found.");
   const settings = channel.channel.communityPointsSettings;
   const points = channel.channel.self?.communityPoints;
   return { channelId: channel.id, name: settings?.name || "Channel points", image: settings?.image?.url2x ?? settings?.image?.url,
     balance: points?.balance ?? null, claimId: points?.availableClaim?.id, enabled: settings?.isEnabled ?? false,
-    rewards: [...(settings?.customRewards ?? []).map(r => ({ ...r, automatic: false })),
-      ...(settings?.automaticRewards ?? []).map(r => ({ ...r, automatic: true }))]
-      .filter(r => r.isEnabled && (!r.pricingType || r.pricingType === "POINTS")),
+    rewards: [...(settings?.customRewards ?? []).map(r => ({ value: r, automatic: false })),
+      ...(settings?.automaticRewards ?? []).map(r => ({ value: r, automatic: true }))]
+      .flatMap(({ value, automatic }) => {
+        // Bits-priced and unpriced automatic rewards can have a null cost.
+        // Validate each entry independently so none can disable earning or the catalog.
+        const reward = rewardSchema.safeParse(value);
+        return reward.success && reward.data.isEnabled && (!reward.data.pricingType || reward.data.pricingType === "POINTS")
+          ? [{ ...reward.data, automatic }] : [];
+      }),
   };
 }
 export function rewardUnavailable(reward: PointsReward, balance: number | null, now = Date.now()): string | undefined {
@@ -74,6 +82,8 @@ export class ChannelPointsService {
   private noticeTimer?: ReturnType<typeof setTimeout>;
   private pendingBase = false;
   private pendingBonus = false;
+  private diagnostics = { beacons: 0, passiveAwards: 0, bonusClaims: 0, connected: false, error: "", lastAwardAt: 0 };
+  status() { return { channel: this.channel, playing: this.playing, linked: Boolean(this.options.token()), balance: this.context?.balance ?? null, ...this.diagnostics }; }
   private spade?: string;
   private tickPending = false;
   private retryAfter = 0;
@@ -147,7 +157,7 @@ export class ChannelPointsService {
         this.watchedMs -= 60000;
         await this.minuteWatched(identity, generation);
       }
-    } catch { this.retryAfter = Date.now() + 30000; /* Retry a provider outage with backoff; never invent a claim. */ }
+    } catch (error) { this.diagnostics.error = error instanceof z.ZodError ? "Twitch returned incomplete points tracking data." : error instanceof Error ? error.message : "Points tracking could not connect."; this.retryAfter = Date.now() + 30000; /* Retry a provider outage with backoff; never invent a claim. */ }
     finally { this.tickPending = false; }
   }
   private async minuteWatched(identity: { token: string; id: string }, generation: number) {
@@ -169,8 +179,10 @@ export class ChannelPointsService {
     }
     if (generation !== this.generation || !this.playing || this.options.token() !== identity.token) return;
     const event = { event: "minute-watched", properties: { channel_id: this.context.channelId, broadcast_id: broadcast, player: "site", user_id: Number(identity.id) } };
-    await this.options.fetch(this.spade, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    const response = await this.options.fetch(this.spade, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ data: btoa(JSON.stringify(event)) }), signal: AbortSignal.timeout(10000) });
+    if (!response.ok) throw new Error(`Twitch watch tracking could not connect (${response.status}).`);
+    this.diagnostics.beacons++; this.diagnostics.error = "";
     // A delivered watch beacon is not an awarded-point confirmation. Only the
     // provider's points-earned event below creates a chat notice.
   }
@@ -186,6 +198,7 @@ export class ChannelPointsService {
       this.claimed.add(claim); if (this.claimed.size > 100) this.claimed.delete(this.claimed.values().next().value!);
       if (result.currentPoints != null) context.balance = result.currentPoints;
       context.claimId = undefined;
+      this.diagnostics.bonusClaims++; this.diagnostics.lastAwardAt = Date.now();
       this.queueNotice(true);
     } finally { this.claimPending = false; }
   }
@@ -194,7 +207,10 @@ export class ChannelPointsService {
     clearTimeout(this.noticeTimer);
     const channel = this.channel;
     this.noticeTimer = setTimeout(() => {
-      if (channel && channel === this.channel) this.options.notice(channel, this.pendingBonus ? "Bonus & channel points has been claimed" : "Channel points has been claimed");
+      if (channel && channel === this.channel) {
+        if (this.pendingBase) this.options.notice(channel, "Channel points has been claimed");
+        if (this.pendingBonus) this.options.notice(channel, "Bonus channel points has been claimed");
+      }
       this.pendingBase = this.pendingBonus = false;
     }, 900);
   }
@@ -214,6 +230,8 @@ export class ChannelPointsService {
           this.retryMs = 1000; watchdog((packet.welcome?.keepaliveSec ?? 15) * 1000 + 5000);
           send({ type: "authenticate", authenticate: { token: identity.token } });
           send({ type: "subscribe", subscribe: { id: subscription, type: "pubsub", pubsub: { topic: `community-points-user-v1.${identity.id}` } } });
+        } else if (packet.type === "subscribeResponse") {
+          this.diagnostics.connected = !packet.subscribeResponse?.error;
         } else if (packet.type === "keepalive") watchdog();
         else if (packet.type === "reconnect") socket.close();
         else if (packet.type === "notification") {
@@ -226,7 +244,12 @@ export class ChannelPointsService {
           if (pointsChannel !== this.context?.channelId) return;
           if (message.type === "points-earned" && Number(message.data?.point_gain?.total_points ?? 0) > 0) {
             if (typeof message.data?.balance?.balance === "number") this.context.balance = message.data.balance.balance;
-            this.queueNotice(false);
+            const reason = String(message.data?.point_gain?.reason_code ?? "").toUpperCase();
+            // The claim mutation confirms bonus claims; its matching earned event
+            // must not also masquerade as passive watch-time earnings.
+            if (!/CLAIM|BONUS/.test(reason)) {
+              this.diagnostics.passiveAwards++; this.diagnostics.lastAwardAt = Date.now(); this.queueNotice(false);
+            }
           } else if (message.type === "claim-available" && this.options.bonus()) {
             void this.refresh().then(context => this.claimBonus(context, generation)).catch(() => undefined);
           }
@@ -236,7 +259,7 @@ export class ChannelPointsService {
     socket.onerror = () => socket.close();
     socket.onclose = () => {
       if (this.socket !== socket) return;
-      this.socket = undefined; clearTimeout(this.socketWatchdog);
+      this.socket = undefined; this.diagnostics.connected = false; clearTimeout(this.socketWatchdog);
       if (generation === this.generation) {
         this.reconnect = setTimeout(() => { this.reconnect = undefined; if (generation === this.generation && this.playing) this.connect(identity, generation); }, this.retryMs);
         this.retryMs = Math.min(30000, this.retryMs * 2);
@@ -279,6 +302,7 @@ export class ChannelPointsService {
     clearInterval(this.interval); clearTimeout(this.reconnect); clearTimeout(this.socketWatchdog); clearTimeout(this.noticeTimer);
     const socket = this.socket; this.socket = undefined; socket?.close(); this.reconnect = undefined;
     this.context = undefined; this.contextPending = undefined; this.identity = undefined; this.redemptionIntent = undefined;
+    this.diagnostics = { beacons: 0, passiveAwards: 0, bonusClaims: 0, connected: false, error: "", lastAwardAt: 0 };
     this.retryAfter = 0; this.pendingBase = this.pendingBonus = false; this.claimed.clear(); this.eventIds.clear();
   }
 }

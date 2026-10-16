@@ -1,3 +1,4 @@
+import { KickChannelPointsService } from "./kick-channel-points";
 import { profileUrl, subscriptionUrl } from "./channel-links";
 import { Preferences } from "@capacitor/preferences";
 import { ChannelPointsService } from "./channel-points";
@@ -169,6 +170,11 @@ export const channelPoints = new ChannelPointsService({ fetch: nativeFetch,
     displayName: "VioletWire", color: "#a970ff", text: "", badges: [], sentAt: Date.now(), twitchEmotes: [],
     notice: { type: "other", systemMessage: text } }),
 });
+export const kickChannelPoints = new KickChannelPointsService({
+  session: () => accounts.kickAccountId(),
+  request: (path, method = "GET", body) => accounts.hasKickAccount() ? accounts.request(path, method, body) : nativeFetch(`https://kick.com${path}`, { method }),
+  notice: (channel, text) => messages.emit({ id: `kick-points-${crypto.randomUUID()}`, channel, login: "violetwire", displayName: "VioletWire", color: "#a970ff", text: "", badges: [], sentAt: Date.now(), twitchEmotes: [], notice: { type: "other", systemMessage: text } }),
+});
 export const currentPlaybackChannel = () => activeChannel;
 export const discoverKick = kick;
 export function queueVod(video: Vod, downloadId?: string) { queuedVod = { video, downloadId }; }
@@ -300,6 +306,7 @@ export async function initializePlatform(): Promise<void> {
     state = value;
     nativeStateEvent.emit(value);
     channelPoints.playback(activeChannel, value, !!activeVod);
+    kickChannelPoints.playback(activeChannel, value, !!activeVod);
   });
   await VioletNative.addListener("fullscreenRequest", (event) => {
     void setFullscreen(event.value);
@@ -519,6 +526,7 @@ export const androidPlatform: DesktopApi = {
       document.documentElement.classList.remove("android-offline-chat");
       ++playGeneration;
       activeChannel = null;
+      channelPoints.stop(); kickChannelPoints.stop();
       pauseChat();
       activeVod = null; queuedVod = null; vodPlaybackEvent.emit(null); document.documentElement.classList.remove("android-vod");
       await VioletNative.stop();
@@ -548,6 +556,8 @@ export const androidPlatform: DesktopApi = {
     getNativeStats: async () => ({
       ...await VioletNative.stats(),
       status: state.status,
+      channelPoints: JSON.stringify(channelPoints.status()),
+      kickChannelPoints: JSON.stringify(kickChannelPoints.status()),
     }),
     onNativeState: nativeStateEvent.subscribe,
     sendNativeControlAction: actions.emit,

@@ -178,6 +178,7 @@ export interface NativePlayerTransition {
 }
 
 export interface NativePlayerState {
+  pictureInPicture?: boolean;
   /** Android archive playback, including a VOD saved on the device. */
   vod?: boolean;
   status: "idle" | "starting" | "playing" | "stopped" | "error";

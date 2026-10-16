@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, RefreshCw, X } from "lucide-react";
-import { channelPoints, getFullscreen, setFullscreen } from "./platform";
+import { ArrowLeft, X } from "lucide-react";
+import { channelPoints, kickChannelPoints, getFullscreen, setFullscreen } from "./platform";
 import { VioletNative } from "./native";
 import { rewardUnavailable, type PointsContext, type PointsReward } from "./channel-points";
+export function KickPointsIcon() { return <svg viewBox="20 25 77 78" width="24" height="24" fill="currentColor" aria-hidden="true"><circle cx="71" cy="50" r="20" /><circle cx="42" cy="81" r="17" /><circle cx="80" cy="86" r="11" /></svg>; }
 export function ChannelPointsIcon() { return <span className="channel-points-icon" aria-hidden="true" />; }
 const automaticNames: Record<string, string> = {
   SEND_HIGHLIGHTED_MESSAGE: "Highlight My Message", RANDOM_SUB_EMOTE_UNLOCK: "Unlock a Random Emote",
@@ -11,6 +12,10 @@ const automaticNames: Record<string, string> = {
   SINGLE_MESSAGE_BYPASS_SUB_MODE: "Send a Message in Subscriber-only Chat", CELEBRATION: "Celebration",
 };
 export function AndroidChannelPoints({ channel, onClose }: { channel: string; onClose: () => void }) {
+  const isKick = channel.startsWith("kick:");
+  const service = isKick ? kickChannelPoints : channelPoints;
+  const Icon = isKick ? KickPointsIcon : ChannelPointsIcon;
+  const provider = isKick ? "Kick account" : "Twitch website session";
   const [context, setContext] = useState<PointsContext | null>(null);
   const [selected, setSelected] = useState<PointsReward | null>(null);
   const [text, setText] = useState("");
@@ -22,8 +27,8 @@ export function AndroidChannelPoints({ channel, onClose }: { channel: string; on
   const sheet = useRef<HTMLElement>(null);
   const load = async () => {
     setLoading(true); setError("");
-    try { const value = await channelPoints.load(channel); if (mounted.current) setContext(value); }
-    catch (e) { if (mounted.current) setError(e instanceof Error ? e.message : String(e)); }
+    try { const value = await service.load(channel); if (mounted.current) setContext(value); }
+    catch (e) { if (mounted.current) setError(e instanceof Error && e.name !== "ZodError" ? e.message : "The provider returned incomplete reward details. Try again."); }
     finally { if (mounted.current) setLoading(false); }
   };
   useEffect(() => {
@@ -67,19 +72,18 @@ export function AndroidChannelPoints({ channel, onClose }: { channel: string; on
     if (!selected || pending.current) return;
     pending.current = true; setBusy(true); setError("");
     try {
-      await channelPoints.redeem(channel, selected, text);
+      await service.redeem(channel, selected, text);
       if (mounted.current) onClose();
-    } catch (e) { if (mounted.current) setError(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { if (mounted.current) setError(e instanceof Error && e.name !== "ZodError" ? e.message : "The provider returned incomplete reward details. Try again."); }
     finally { pending.current = false; if (mounted.current) setBusy(false); }
   };
   const close = () => { if (!pending.current) onClose(); };
-  const unavailable = selected ? rewardUnavailable(selected, context?.balance ?? null) : undefined;
+  const unavailable = selected ? (isKick && context?.balance === null ? "Sign in to Kick to use channel points." : rewardUnavailable(selected, context?.balance ?? null)) : undefined;
   return createPortal(<div className="android-points-overlay">
     <section role="dialog" aria-modal="true" aria-label="Channel points rewards" className="android-points-sheet" ref={sheet} style={{ top }}>
       <header>
         {selected && <button aria-label="Back to rewards" type="button" disabled={busy} onClick={() => { setSelected(null); setText(""); setError(""); }}><ArrowLeft /></button>}
         <strong>{selected?.title ?? (selected?.type ? automaticNames[selected.type] ?? "Twitch reward" : "Channel Points & Rewards")}</strong>
-        {!selected && <button aria-label="Refresh rewards" type="button" disabled={loading} onClick={() => void load()}><RefreshCw size={19} /></button>}
         <button aria-label="Close channel points" type="button" disabled={busy} onClick={close}><X /></button>
       </header>
       <div className="android-points-scroll">
@@ -87,11 +91,11 @@ export function AndroidChannelPoints({ channel, onClose }: { channel: string; on
         {loading && !context && <p role="status">Loading channel points…</p>}
         {!loading && !context && <button className="primary-button" onClick={() => void load()} type="button">Try again</button>}
         {context && !context.enabled && <p>This channel has not enabled channel points.</p>}
-        {context?.enabled && context.balance === null && <div className="android-points-connect"><p>Link your Twitch website session in Accounts to earn and spend channel points.</p><button className="primary-button" type="button" onClick={() => { close(); window.dispatchEvent(new CustomEvent("android-open-settings", { detail: { section: "account" } })); }}>Open Accounts</button></div>}
+        {context?.enabled && context.balance === null && <div className="android-points-connect"><p>Link your {provider} in Accounts to earn and spend channel points.</p><button className="primary-button" type="button" onClick={() => { close(); window.dispatchEvent(new CustomEvent("android-open-settings", { detail: { section: "account" } })); }}>Open Accounts</button></div>}
         {selected ? <form onSubmit={event => { event.preventDefault(); void spend(); }}>
           <div className="android-points-reward-detail" style={{ backgroundColor: selected.backgroundColor || "#60349a" }}>
             {(selected.image?.url2x ?? selected.image?.url ?? selected.defaultImage?.url) && <img alt="" src={selected.image?.url2x ?? selected.image?.url ?? selected.defaultImage?.url} />}
-            <strong><ChannelPointsIcon /> {selected.cost.toLocaleString()}</strong>
+            <strong><Icon /> {selected.cost.toLocaleString()}</strong>
           </div>
           {selected.prompt && <p className="android-points-prompt">{selected.prompt}</p>}
           {selected.isSubOnly && <p>Subscriber-only reward. Twitch checks your subscription when you redeem.</p>}
@@ -103,7 +107,7 @@ export function AndroidChannelPoints({ channel, onClose }: { channel: string; on
           {context?.enabled && context.rewards.map(reward => <button key={reward.id} type="button" onClick={() => { setSelected(reward); setText(""); setError(""); }}>
             <span className="android-points-tile" style={{ backgroundColor: reward.backgroundColor || "#60349a" }}>
               {(reward.image?.url2x ?? reward.image?.url ?? reward.defaultImage?.url) && <img alt="" src={reward.image?.url2x ?? reward.image?.url ?? reward.defaultImage?.url} />}
-              <strong><ChannelPointsIcon /> {reward.cost.toLocaleString()}</strong>
+              <strong><Icon /> {reward.cost.toLocaleString()}</strong>
             </span>
             <span>{reward.title ?? automaticNames[reward.type ?? ""] ?? "Twitch reward"}</span>
             {(reward.isPaused || !reward.isInStock) && <small>{reward.isPaused ? "Paused" : "Out of stock"}</small>}
@@ -111,7 +115,7 @@ export function AndroidChannelPoints({ channel, onClose }: { channel: string; on
           {context?.enabled && !context.rewards.length && <p>No channel point rewards are currently available.</p>}
         </div>}
       </div>
-      {context?.enabled && <footer>{context.image ? <img alt="" src={context.image} /> : <ChannelPointsIcon />}<strong>{context.balance === null ? "—" : context.balance.toLocaleString()}</strong><span>{context.name}</span></footer>}
+      {context?.enabled && <footer>{context.image ? <img alt="" src={context.image} /> : <Icon />}<strong>{context.balance === null ? "—" : context.balance.toLocaleString()}</strong><span>{context.name}</span></footer>}
     </section>
   </div>, document.body);
 }

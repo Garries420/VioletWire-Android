@@ -28,6 +28,8 @@ const kickLiveDetails = z.object({
   data: z
     .object({
       thumbnail: z.object({ src: z.string().nullish() }).nullish(),
+      language: z.string().nullish(), is_mature: z.boolean().nullish(), tags: z.array(z.string()).nullish(),
+      category: z.object({ tags: z.array(z.string()).nullish() }).nullish(),
       start_time: z.string().nullish(),
       created_at: z.string().nullish(),
     })
@@ -102,7 +104,7 @@ export class KickPublicService {
   }
   async getLivestream(
     slug: string,
-  ): Promise<{ thumbnailUrl?: string; startedAt?: string } | null> {
+  ): Promise<{ thumbnailUrl?: string; startedAt?: string; tags: string[] } | null> {
     const payload = await this.requestJson(
       `/api/v2/channels/${encodeURIComponent(slug)}/livestream`,
     );
@@ -110,6 +112,8 @@ export class KickPublicService {
     if (!parsed.success || !parsed.data.data) return null;
     return {
       thumbnailUrl: parsed.data.data.thumbnail?.src ?? undefined,
+      tags: [...new Set([...(parsed.data.data.tags ?? []), ...(parsed.data.data.category?.tags ?? []),
+        ...(parsed.data.data.language ? [parsed.data.data.language] : []), ...(parsed.data.data.is_mature ? ["18+"] : [])])],
       startedAt: toIsoTimestamp(
         parsed.data.data.start_time ?? parsed.data.data.created_at,
       ),
@@ -372,6 +376,10 @@ export class KickPublicService {
       slug,
       displayName: channel.user?.username ?? slug,
       profileImageUrl: channel.user?.profile_pic ?? "",
+      followers: channel.followers_count ?? undefined,
+      description: channel.user?.bio ?? undefined,
+      tags: [...new Set([...(livestream?.tags ?? []), ...(livestream?.categories?.flatMap(c => c.tags ?? []) ?? []),
+        ...(livestream?.language ? [livestream.language] : []), ...(livestream?.is_mature ? ["18+"] : [])])],
       chatroomId:
         channel.chatroom?.id === undefined
           ? undefined

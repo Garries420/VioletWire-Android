@@ -23,9 +23,14 @@ final class TwitchPlaylistParserFactory implements HlsPlaylistParserFactory {
     private final Listener listener;
     private final Observer observer;
     private final boolean lowLatency;
+    interface SegmentObserver { void completeSegments(long longestMs); }
+    private SegmentObserver segmentObserver;
     TwitchPlaylistParserFactory(Listener listener) { this(listener, null); }
     TwitchPlaylistParserFactory(Listener listener, Observer observer) { this(listener, observer, false); }
     TwitchPlaylistParserFactory(Listener listener, Observer observer, boolean lowLatency) { this.listener = listener; this.observer = observer; this.lowLatency = lowLatency; }
+    TwitchPlaylistParserFactory(Listener listener, Observer observer, boolean lowLatency, SegmentObserver segments) {
+        this(listener, observer, lowLatency); segmentObserver = segments;
+    }
     private ParsingLoadable.Parser<HlsPlaylist> wrap(ParsingLoadable.Parser<HlsPlaylist> parser) {
         return (Uri uri, java.io.InputStream input) -> {
             String host = uri.getHost();
@@ -53,7 +58,10 @@ final class TwitchPlaylistParserFactory implements HlsPlaylistParserFactory {
                         // Segment durations and timestamps remain unchanged.
                         long longest = 0;
                         for (HlsMediaPlaylist.Segment segment : media.segments) longest = Math.max(longest, segment.durationUs);
-                        if (longest > 0) reloadDurationUs = Math.min(reloadDurationUs, Math.max(1000000, longest / 2));
+                        if (longest > 0) {
+                            reloadDurationUs = Math.min(reloadDurationUs, twitch ? Math.max(1000000, longest / 2) : 1000000);
+                            if (!twitch && segmentObserver != null) segmentObserver.completeSegments(longest / 1000);
+                        }
                     }
                     // Keep segment timing and DRM intact; avoid boundary rounding.
                     playlist = new HlsMediaPlaylist(media.playlistType, media.baseUri, media.tags,

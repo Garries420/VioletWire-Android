@@ -128,7 +128,7 @@ import { MultiStreamView } from "./MultiStreamView";
 import { ReactTooltipLayer } from "./ReactTooltipLayer";
 import { ChatBadge } from "./ChatBadge";
 import { ReplyThread } from "./ReplyThread";
-import { AndroidChannelPoints, ChannelPointsIcon } from "../../android/AndroidChannelPoints";
+import { AndroidChannelPoints, ChannelPointsIcon, KickPointsIcon } from "../../android/AndroidChannelPoints";
 import { ChatUserCard } from "./ChatUserCard";
 import { ChatUserList } from "./ChatUserList";
 import {
@@ -5277,8 +5277,8 @@ export function App() {
                           value={chatInput}
                         />
                         <div className="chat-composer-inline-actions">
-                          {isAndroid && !nativeState.vod && !chatIsKick && !emotePickerOpen && !chatInput.length && activeChannel && <button className="android-composer-action channel-points-button" type="button" aria-label="Channel points rewards"
-                            onPointerDown={event => event.preventDefault()} onClick={() => setChannelPointsOpen(true)}><ChannelPointsIcon /></button>}
+                          {isAndroid && !nativeState.vod && !emotePickerOpen && !chatInput.length && activeChannel && <button className="android-composer-action channel-points-button" type="button" aria-label="Channel points rewards"
+                            onPointerDown={event => event.preventDefault()} onClick={() => setChannelPointsOpen(true)}>{chatIsKick ? <KickPointsIcon /> : <ChannelPointsIcon />}</button>}
                           {isAndroid && chatInput.length > 0 && <button className="android-composer-action" type="button" aria-label="Delete previous emote or character"
                             onPointerDown={(event) => event.preventDefault()} onClick={() => chatInputHost.current?.dispatchEvent(new Event("android-composer-backspace"))}>
                             <AndroidComposerIcon kind="backspace" />
@@ -5573,7 +5573,7 @@ export function App() {
                 </aside>
                 </ChatWindowPortal>
               )}
-              {isAndroid && channelPointsOpen && activeChannel && !activeChannel.startsWith("kick:") && <AndroidChannelPoints key={activeChannel} channel={activeChannel} onClose={() => setChannelPointsOpen(false)} />}
+              {isAndroid && channelPointsOpen && activeChannel && <AndroidChannelPoints key={activeChannel} channel={activeChannel} onClose={() => setChannelPointsOpen(false)} />}
               {isAndroid && chatUserListOpen && activeChannel && <AndroidViewerList
                 key={chatChannel ?? activeChannel} channel={chatChannel ?? activeChannel}
                 entries={chatUserListEntries} onClose={() => setChatUserListOpen(false)} onOpenUser={openChatUserCard}
@@ -6567,8 +6567,8 @@ export function App() {
                       <strong>Twitch website session</strong>
                       <span>
                         {playbackSession.linked
-                          ? `Linked${playbackSession.login ? ` as ${playbackSession.login}` : ""}. Used for higher Twitch playback qualities when available (such as Source or 1440p).`
-                          : "Optional session used for higher Twitch playback qualities when available (such as Source or 1440p)."}
+                          ? `Linked${playbackSession.login ? ` as ${playbackSession.login}` : ""}. Used for ${isAndroid ? "channel points and " : ""}higher Twitch playback qualities when available (such as Source or 1440p).`
+                          : isAndroid ? "Link your Twitch website session to earn and spend channel points and access higher playback qualities when available." : "Optional session used for higher Twitch playback qualities when available (such as Source or 1440p)."}
                       </span>
                     </div>
                     <button

@@ -310,6 +310,8 @@ export function AndroidHome() {
       if (k.status === "fulfilled")
         items.push(
           ...k.value.map((c) => ({
+            tags: c.tags,
+            followers: c.followers,
             key: `kick:${c.slug}`,
             name: c.displayName,
             image: c.profileImageUrl,
@@ -328,7 +330,9 @@ export function AndroidHome() {
         );
       }
       if (request === generation.current) {
+        const firstLoad = followedSnapshot.current.length === 0;
         items = mergeFollowing(followedSnapshot.current, items);
+        if (firstLoad) items.sort((a, b) => a.live !== b.live ? (a.live ? -1 : 1) : a.live ? b.viewers - a.viewers : a.name.localeCompare(b.name));
         followedSnapshot.current = items;
         followingChecked.current = Date.now();
         if (accounts) saveFollowingSnapshot(items, accounts);
@@ -336,11 +340,7 @@ export function AndroidHome() {
       if (failures.length && request === generation.current)
         setError(failures.join(" · "));
       return {
-        items: items
-          .filter((c) => c.live !== offline)
-          .sort((a, b) =>
-            offline ? a.name.localeCompare(b.name) : b.viewers - a.viewers,
-          ),
+        items: items.filter((c) => c.live !== offline),
       };
     }
     return page === "games" && !category
@@ -353,9 +353,11 @@ export function AndroidHome() {
     const isFollowing = !search && page === "following";
     const hasSnapshot = isFollowing && followedSnapshot.current.length > 0;
     if (hasSnapshot) {
-      if (viewIdentity.current !== identity) restoreScroll.current = followingScroll.current.get(offline) ?? 0;
+      if (viewIdentity.current !== identity) {
+        restoreScroll.current = followingScroll.current.get(offline) ?? 0;
+        setChannels(followedSnapshot.current.filter(c => c.live !== offline));
+      }
       viewIdentity.current = identity;
-      setChannels(followedSnapshot.current.filter(c => c.live !== offline));
       setCategories([]); setVideos([]); setCursor(undefined); setBusy(false);
       if (Date.now() - followingChecked.current < 30000) return;
     }
@@ -674,7 +676,10 @@ export function AndroidHome() {
                       onClick={() => watch(c.key)}
                       aria-label={`Watch ${c.name}`}
                     >
-                      {!dataSaver && <LiveThumbnail channel={c.key} src={c.thumbnail} />}
+                      <LiveThumbnail channel={c.key} src={c.thumbnail} noImage={dataSaver} onMetadata={details => {
+                        const merge = (items: MobileChannel[]) => items.map(item => item.key === c.key ? { ...item, ...details } : item);
+                        setChannels(merge); followedSnapshot.current = merge(followedSnapshot.current);
+                      }} />
                       <span>{number(c.viewers)} viewers</span>
                       {c.startedAt && (
                         <time>
