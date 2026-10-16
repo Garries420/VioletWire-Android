@@ -7330,6 +7330,9 @@ export function App() {
                         </ul>
                       </section>
                     )}
+                    {([['Replaced', entry.replaced], ['Removed', entry.removed]] as const).map(([title, items]) => items?.length ? (
+                      <section key={title}><h4>{title}</h4><ul>{items.map(item => <li key={item}>{item}</li>)}</ul></section>
+                    ) : null)}
                     {entry.fixes.length > 0 && (
                       <section>
                         <h4>Fixes</h4>

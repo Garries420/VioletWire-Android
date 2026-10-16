@@ -18,6 +18,7 @@ import { installDpadNavigation } from "./navigation";
 import { AndroidPlayerChrome } from "./AndroidPlayerChrome";
 import { AndroidLibrary } from "./AndroidLibrary";
 import { AndroidHome } from "./AndroidHome";
+import { AndroidWhatsNew } from "./AndroidWhatsNew";
 import { AndroidUpdateNotice } from "./AndroidUpdateNotice";
 import { startupFailed } from "./startup";
 
@@ -70,6 +71,7 @@ async function start() {
         <AndroidHome />
         <AndroidLibrary />
         <AndroidUpdateNotice />
+        <AndroidWhatsNew version={info.version} updated={info.updated} />
         {startupError && (
           <div className="android-startup-error" role="alert">
             {startupError}

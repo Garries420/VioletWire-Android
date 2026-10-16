@@ -40,7 +40,7 @@ interface VioletNativePlugin {
   startupReady(): Promise<void>;
   rewardPresentation(options: { active: boolean }): Promise<void>;
   rewardWebsite(options: { channel: string }): Promise<void>;
-  deviceInfo(): Promise<{ television: boolean }>;
+  deviceInfo(): Promise<{ television: boolean; version: string; updated: boolean }>;
   play(options: {
     url: string;
     volume: number;

@@ -2,7 +2,7 @@ import type { AppUpdateStatus, UpdateApi } from "../shared/updates";
 import { nativeFetch } from "./native";
 import changelog from "./CHANGELOG.md?raw";
 
-export const ANDROID_VERSION = "1.0";
+export const ANDROID_VERSION = "1.1";
 export const RELEASE_REPOSITORY = "Garries420/VioletWire-Android";
 
 export function numericVersion(value: string): number[] | null {

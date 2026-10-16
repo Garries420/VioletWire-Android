@@ -1041,3 +1041,10 @@
 .android-channel-profile > div { min-width:0; overflow-wrap:anywhere; }
 .android-profile-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .android-profile-actions button { flex-shrink:0; }
+
+.android-whats-new { z-index: 10000; }
+.android .android-whats-new .settings-modal-panel { height:100%; max-height:100%; display:flex; flex-direction:column; }
+.android-whats-new .changelog-modal-content { flex:1; min-height:0; overflow:auto; }
+.android-whats-new footer { flex-shrink:0; padding:12px 20px max(12px,env(safe-area-inset-bottom)); border-top:1px solid #3c3243; }
+.android-whats-new footer button { width:100%; min-height:48px; }
+.android .android-whats-new li { font-size:14px; }

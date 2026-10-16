@@ -178,7 +178,13 @@ public class VioletNativePlugin extends Plugin {
     }
 
     @PluginMethod public void deviceInfo(PluginCall call) {
-        JSObject result = new JSObject(); result.put("television", television); call.resolve(result);
+        JSObject result = new JSObject(); result.put("television", television);
+        try {
+            android.content.pm.PackageInfo info = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0);
+            result.put("version", info.versionName);
+            result.put("updated", info.lastUpdateTime > info.firstInstallTime);
+        } catch (android.content.pm.PackageManager.NameNotFoundException error) { call.reject("Could not read installed version", error); return; }
+        call.resolve(result);
     }
 
     @PluginMethod public void configure(PluginCall call) {

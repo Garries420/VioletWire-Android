@@ -3,7 +3,7 @@
 </p>
 <h1 align="center">VioletWire Android</h1>
 <p align="center">
-  <a href="https://github.com/Garries420/VioletWire-Android/releases/latest"><img src="docs/assets/release.svg" alt="release v1.0"></a>
+  <a href="https://github.com/Garries420/VioletWire-Android/releases/latest"><img src="docs/assets/release.svg" alt="release v1.1"></a>
   <img src="docs/assets/platform.svg" alt="platform Android">
 </p>
 

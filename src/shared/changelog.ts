@@ -4,6 +4,8 @@ export interface ChangelogEntry {
   additions: string[];
   improvements: string[];
   fixes: string[];
+  replaced?: string[];
+  removed?: string[];
 }
 
 function compareVersionIdentifiers(left: string, right: string): number {
@@ -89,6 +91,8 @@ export function parseChangelog(markdown: string): ChangelogEntry[] {
       additions: parseList(sectionBody(body, "Additions")),
       improvements: parseList(sectionBody(body, "Improvements")),
       fixes: parseList(sectionBody(body, "Fixes")),
+      replaced: parseList(sectionBody(body, "Replaced")),
+      removed: parseList(sectionBody(body, "Removed")),
     });
   });
   return releases;
