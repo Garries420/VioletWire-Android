@@ -1037,3 +1037,7 @@
 .android.oled-mode .settings-modal-search, .android.oled-mode .settings-modal-search input { background: #000; background-image: none; }
 
 .android .native-chat-message.chat-reward-message { padding-left: 9px; margin: 3px 0; }
+
+.android-channel-profile > div { min-width:0; overflow-wrap:anywhere; }
+.android-profile-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.android-profile-actions button { flex-shrink:0; }

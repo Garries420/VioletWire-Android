@@ -28,6 +28,7 @@ import {
   type VodDownload,
   type VodVariant,
 } from "./vod-service";
+import { AndroidProfileActions } from "./AndroidProfileActions";
 import { profiles } from "./profile-cache";
 import { downloadRange, formatDownloadTime } from "./download-range";
 import { loadKickVodProfile, resolveArchive } from "./kick-vods";
@@ -478,6 +479,7 @@ export function AndroidLibrary() {
                             </p>
                           )}
                           <p>{profile.description}</p>
+                          <AndroidProfileActions key={profile.login} channel={profile.login} name={profile.displayName}>
                           <button
                             onClick={() => {
                               if (profile.live === false)
@@ -493,6 +495,7 @@ export function AndroidLibrary() {
                             <Play size={16} />{" "}
                             {profile.live ? "WATCH LIVE" : "OPEN PLAYER"}
                           </button>
+                          </AndroidProfileActions>
                         </div>
                       </div>
                     )}
