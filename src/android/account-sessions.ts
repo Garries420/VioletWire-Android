@@ -95,7 +95,7 @@ export class AndroidAccountSessions {
     } catch { return { status: "unavailable", account: null }; }
   }
   async getUser(): Promise<KickUserAccount | null> { const state = await this.authState(); return state.status === "signed-in" ? state.account : null; }
-  async followed(publicService: KickPublicService): Promise<KickChannel[]> {
+  async followed(_publicService: KickPublicService): Promise<KickChannel[]> {
     if (!this.kick) return [];
     const channels: KickChannel[] = [], seen = new Set<string>(); let cursor: string | undefined;
     for (let page = 0; page < 10; page++) {
@@ -113,13 +113,6 @@ export class AndroidAccountSessions {
       const next = data.next_cursor == null ? undefined : String(data.next_cursor);
       if (!next || next === "0" || next === cursor) break; cursor = next;
     }
-    // Fetch live details in bounded batches, preserving the account list on a
-    // temporary public API refusal.
-    for (let i = 0; i < channels.length; i += 4) await Promise.all(channels.slice(i, i + 4).map(async channel => {
-      if (!channel.isLive) return;
-      try { Object.assign(channel, await publicService.getChannel(channel.slug), { following: true }); } catch { /* Retain followed entry. */ }
-      try { const live = await publicService.getLivestream(channel.slug); if(live?.thumbnailUrl) channel.thumbnailUrl=live.thumbnailUrl; if(live?.startedAt) channel.startedAt=live.startedAt; } catch { /* Keep other live metadata when the preview request fails. */ }
-    }));
     return channels;
   }
   async viewer(slug: string): Promise<{ following?: boolean; subscribed?: boolean }> {

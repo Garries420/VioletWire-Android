@@ -22,7 +22,7 @@
 
 .chat-user-card > header {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 30px 30px;
+  grid-template-columns: 44px minmax(0, 1fr) 30px;
   align-items: center;
   gap: 8px;
   padding: 10px;
@@ -248,3 +248,7 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+.chat-user-card > header .chat-user-profile-avatar { width: 44px; height: 44px; border: 0; background: transparent; }
+.chat-user-card > header .chat-user-profile-name { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; width: auto; height: auto; border: 0; background: transparent; text-align: left; }
+.chat-user-card > header .chat-user-profile-name:disabled, .chat-user-card > header .chat-user-profile-avatar:disabled { cursor: default; opacity: 1; }

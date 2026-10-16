@@ -126,12 +126,42 @@ public class VioletNativePlugin extends Plugin {
         if (resizeMode < 0 || resizeMode > 2) resizeMode = 0;
     }
 
+    private Integer rewardsPreviousOrientation;
+    @PluginMethod public void rewardPresentation(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            if (call.getBoolean("active", false)) {
+                if (rewardsPreviousOrientation == null) rewardsPreviousOrientation = getActivity().getRequestedOrientation();
+                getActivity().setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+            } else if (rewardsPreviousOrientation != null) {
+                int previous = rewardsPreviousOrientation; rewardsPreviousOrientation = null;
+                getActivity().setRequestedOrientation(previous);
+            }
+            call.resolve();
+        });
+    }
+    @PluginMethod public void rewardWebsite(PluginCall call) {
+        String channel = call.getString("channel", "");
+        if (!channel.matches("[a-zA-Z0-9_]{1,25}")) { call.reject("Invalid Twitch channel."); return; }
+        getActivity().runOnUiThread(() -> accountBrowser.open("twitch", "https://www.twitch.tv/popout/" + channel + "/reward-center", false,
+            token -> call.resolve(), "Channel points · twitch.tv"));
+    }
+
+    @PluginMethod public void startupReady(PluginCall call) {
+        getActivity().runOnUiThread(() -> { ((MainActivity) getActivity()).finishStartup(); call.resolve(); });
+    }
+
     @PluginMethod public void deviceInfo(PluginCall call) {
         JSObject result = new JSObject(); result.put("television", television); call.resolve(result);
     }
 
     @PluginMethod public void configure(PluginCall call) {
         getActivity().runOnUiThread(() -> {
+            boolean oledMode = call.getBoolean("oledMode", false);
+            int background = oledMode ? android.graphics.Color.BLACK : android.graphics.Color.rgb(16, 13, 21);
+            getBridge().getWebView().setBackgroundColor(background);
+            getActivity().getWindow().getDecorView().setBackgroundColor(background);
+            getActivity().getWindow().setStatusBarColor(android.graphics.Color.BLACK);
+            getActivity().getWindow().setNavigationBarColor(android.graphics.Color.BLACK);
             controlsHideDelay = Math.max(1000, Math.min(10000, call.getInt("controlsHideDelay", 5000)));
             int nextOffset = Math.max(2000, Math.min(10000, call.getInt("targetOffsetMs", 2500)));
             if (controls != null) controls.hideDelay(controlsHideDelay);
@@ -152,7 +182,7 @@ public class VioletNativePlugin extends Plugin {
             targetOffsetMs = nextOffset;
             boolean dataSaver = call.getBoolean("dataSaver", false);
             ((MainActivity) getActivity()).emoteCache().dataSaver(dataSaver);
-            getContext().getSharedPreferences("image-cache", Context.MODE_PRIVATE).edit().putBoolean("dataSaver", dataSaver).apply();
+            getContext().getSharedPreferences("image-cache", Context.MODE_PRIVATE).edit().putBoolean("dataSaver", dataSaver).putBoolean("oledMode", oledMode).apply();
             call.resolve();
         });
     }
@@ -277,8 +307,8 @@ public class VioletNativePlugin extends Plugin {
         String path = call.getString("path", ""), method = call.getString("method", "GET"), token = call.getString("token", "");
         // Only the authenticated account routes used by this app can run in
         // the provider page. No arbitrary addresses or scripts are accepted.
-        boolean publicRead = method.equals("GET") && !path.matches("/api/v2/channels/followed(?:\\?.*)?") && path.matches("/api/(v1/(livestreams|subcategories)|search|v2/channels/[A-Za-z0-9_-]+(?:/(livestream|videos))?)(?:\\?[A-Za-z0-9_%=&.-]+)?");
-        boolean accountRoute = !token.isEmpty() && path.matches("/api/(v1/user|v2/channels/followed(?:\\?cursor=[A-Za-z0-9_%.-]+)?|v2/channels/[A-Za-z0-9_-]+(?:/follow)?|v2/messages/send/[0-9]+|v2/channels/[A-Za-z0-9_-]+/me)");
+        boolean publicRead = method.equals("GET") && !path.matches("/api/v2/channels/followed(?:\\?.*)?") && path.matches("/api/(v1/(livestreams|subcategories)|search|v2/channels/[A-Za-z0-9_-]+(?:/(livestream|videos|users/[A-Za-z0-9_-]+))?)(?:\\?[A-Za-z0-9_%=&.-]+)?");
+        boolean accountRoute = !token.isEmpty() && path.matches("/api/(v1/user|v2/channels/followed(?:\\?cursor=[A-Za-z0-9_%.-]+)?|v2/channels/[A-Za-z0-9_-]+(?:/follow|/users/[A-Za-z0-9_-]+)?|v2/messages/send/[0-9]+|v2/channels/[A-Za-z0-9_-]+/me)");
         if ((!publicRead && !accountRoute)
             || !(method.equals("GET") || method.equals("POST") || method.equals("DELETE")) || token.length() > 8192) {
             call.reject("Invalid Kick account request."); return;
@@ -450,6 +480,12 @@ public class VioletNativePlugin extends Plugin {
             if(vodPlayback && "best".equals(selectedQuality))selectedQuality="source";
             requestedQuality = selectedQuality;
             targetOffsetMs = Math.max(2000, Math.min(10000, call.getInt("targetOffsetMs", 2500)));
+            boolean oledMode = call.getBoolean("oledMode", false);
+            int background = oledMode ? android.graphics.Color.BLACK : android.graphics.Color.rgb(16, 13, 21);
+            getBridge().getWebView().setBackgroundColor(background);
+            getActivity().getWindow().getDecorView().setBackgroundColor(background);
+            getActivity().getWindow().setStatusBarColor(android.graphics.Color.BLACK);
+            getActivity().getWindow().setNavigationBarColor(android.graphics.Color.BLACK);
             controlsHideDelay = Math.max(1000, Math.min(10000, call.getInt("controlsHideDelay", 5000)));
             createPlayer();
             controls.hideDelay(controlsHideDelay);

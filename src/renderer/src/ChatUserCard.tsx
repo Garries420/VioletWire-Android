@@ -8,10 +8,10 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { Ban, ExternalLink, MessageSquare, Undo2, X } from "lucide-react";
+import { Ban, MessageSquare, Undo2, X } from "lucide-react";
 import type { ChatBadgeAsset, ChatMessage } from "../../shared/chat";
 import type { ChatUserProfile } from "../../shared/twitch";
-import { channelUrl, parseChannelKey } from "../../shared/platform";
+import { parseChannelKey } from "../../shared/platform";
 import {
   blockChatter,
   unblockChatter,
@@ -279,9 +279,18 @@ export function ChatUserCard({
           : "Not subscribed"
     : subscription
       ? subscription.isSubscribed
-        ? `${tierLabel(subscription.tier)}${subscription.isGift ? " (gifted)" : ""}`
+        ? target.platform === "kick"
+          ? `Subscribed${subscription.months ? ` · ${subscription.months} months` : ""}${subscription.since ? ` · since ${formatDate(subscription.since)}` : ""}`
+          : `${tierLabel(subscription.tier)}${subscription.isGift ? " (gifted)" : ""}`
         : "Not subscribed"
       : (badgeSubscription ?? "Unavailable");
+
+  const openProfile = () => {
+    if (!isAndroid) return;
+    onClose();
+    const key = `${target.platform === "kick" ? "kick:" : ""}${login}`;
+    window.dispatchEvent(new CustomEvent("android-open-profile", { detail: key }));
+  };
 
   const beginDrag = (event: React.PointerEvent<HTMLElement>) => {
     if (isAndroid) return;
@@ -309,28 +318,18 @@ export function ChatUserCard({
       style={position ?? undefined}
     >
         <header onPointerDown={beginDrag}>
+          <button className="chat-user-profile-avatar" aria-label="Open channel profile" onClick={openProfile} disabled={!isAndroid} type="button">
           {profile?.profileImageUrl ? (
             <img alt="" className="chat-user-avatar" src={profile.profileImageUrl} />
           ) : (
             <span className="chat-user-avatar fallback">{selected.displayName.slice(0, 1).toUpperCase()}</span>
           )}
-          <div>
+          </button>
+          <button className="chat-user-profile-name" onClick={openProfile} disabled={!isAndroid} type="button">
             <strong style={{ color: selected.color || undefined }}>
               {profile?.displayName ?? selected.displayName}
             </strong>
             <small>@{profile?.login ?? selected.login}</small>
-          </div>
-          <button
-            aria-label={`Open ${target.platform === "kick" ? "Kick" : "Twitch"} profile`}
-            onClick={() =>
-              window.desktop.system.openExternal(
-                channelUrl(target.platform, selected.login),
-              )
-            }
-            title={`Open ${target.platform === "kick" ? "Kick" : "Twitch"} profile`}
-            type="button"
-          >
-            <ExternalLink size={16} />
           </button>
           <button aria-label="Close user card" onClick={onClose} title="Close" type="button">
             <X size={17} />

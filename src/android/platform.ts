@@ -1,5 +1,7 @@
 import { profileUrl, subscriptionUrl } from "./channel-links";
 import { Preferences } from "@capacitor/preferences";
+import { ChannelPointsService } from "./channel-points";
+import { initializeFollowingSnapshot } from "./following-snapshot";
 import { TwitchService } from "../services/twitch-service";
 import { KickPublicService } from "../services/kick-public-service";
 import { TwitchChatService } from "../services/twitch-chat-service";
@@ -108,7 +110,7 @@ const kick = new KickPublicService((input, init) => {
   const url = new URL(input instanceof Request ? input.url : input.toString());
   // Authenticated channel details include this viewer's follow state; public
   // details must not tell an existing follower that followers-only chat is locked.
-  if (["kick.com", "www.kick.com"].includes(url.hostname) && /^\/api\/(v1\/(livestreams|subcategories)|search|v2\/channels\/[a-z0-9_-]+(?:\/(livestream|videos))?)$/i.test(url.pathname) && (!init?.method || init.method === "GET")) {
+  if (["kick.com", "www.kick.com"].includes(url.hostname) && /^\/api\/(v1\/(livestreams|subcategories)|search|v2\/channels\/[a-z0-9_-]+(?:\/(livestream|videos|users\/[a-z0-9_-]+))?)$/i.test(url.pathname) && (!init?.method || init.method === "GET")) {
     if(accounts.hasKickAccount()) return accounts.request(url.pathname + url.search);
     // Public discovery shares the provider browser's challenge cookies. It has
     // no account credential and cannot call private or write routes.
@@ -161,6 +163,12 @@ let offlineChannel: string | null = null;
 export function queueOfflineChannel(channel: string) { offlineChannel = channel; }
 export const vodPlaybackEvent = event<VodPlayback | null>();
 export const vodToken = () => accounts.playbackToken();
+export const channelPoints = new ChannelPointsService({ fetch: nativeFetch,
+  token: () => accounts.playbackToken(), bonus: () => preferences.bonusChannelPoints,
+  notice: (channel, text) => messages.emit({ id: `points-${crypto.randomUUID()}`, channel, login: "violetwire",
+    displayName: "VioletWire", color: "#a970ff", text: "", badges: [], sentAt: Date.now(), twitchEmotes: [],
+    notice: { type: "other", systemMessage: text } }),
+});
 export const currentPlaybackChannel = () => activeChannel;
 export const discoverKick = kick;
 export function queueVod(video: Vod, downloadId?: string) { queuedVod = { video, downloadId }; }
@@ -228,7 +236,12 @@ let playGeneration = 0;
 let fullscreen = false;
 
 function configureNativePreferences(): Promise<void> {
+  document.documentElement.classList.toggle("oled-mode", preferences.oledMode);
+  return configureNativeAppearance();
+}
+function configureNativeAppearance(): Promise<void> {
   return VioletNative.configure({
+    oledMode: preferences.oledMode,
     audioCompression: preferences.audioCompression,
     controlsHideDelay: preferences.controlsHideDelay,
     targetOffsetMs: preferences.playbackLatencyMode === "ultra-low" ? 2500 : 6000,
@@ -286,6 +299,7 @@ export async function initializePlatform(): Promise<void> {
     document.documentElement.classList.toggle("android-chat-only", value.quality === "chat_only" && value.status !== "idle");
     state = value;
     nativeStateEvent.emit(value);
+    channelPoints.playback(activeChannel, value, !!activeVod);
   });
   await VioletNative.addListener("fullscreenRequest", (event) => {
     void setFullscreen(event.value);
@@ -299,8 +313,8 @@ export async function initializePlatform(): Promise<void> {
   await VioletNative.addListener("vodSeek", () => { if (activeVod) startReplay(); });
   await VioletNative.addListener("viewMode", ({ chatOnly }) => { document.documentElement.classList.toggle("android-chat-only", chatOnly); if (chatOnly) window.dispatchEvent(new Event("android-stream-chat-mode")); });
   await VioletNative.addListener("authenticationClosed", () => twitch.cancelSignIn());
-  await accounts.initialize();
-  await twitch.initialize();
+  await Promise.all([accounts.initialize(), twitch.initialize(false)]);
+  await initializeFollowingSnapshot((await VioletNative.secureGet()).value, (await VioletNative.secureGet({ record: "kick" })).value);
 }
 
 export const androidUpdates = new AndroidUpdateService();
@@ -319,8 +333,8 @@ export const androidPlatform: DesktopApi = {
     },
     signOut: () => twitch.signOut(),
     getPlaybackSessionState: async () => accounts.playbackState(),
-    linkPlaybackSession: () => accounts.linkPlayback(),
-    unlinkPlaybackSession: () => accounts.unlinkPlayback(),
+    linkPlaybackSession: async () => { const result = await accounts.linkPlayback(); channelPoints.resetSession(); return result; },
+    unlinkPlaybackSession: async () => { const result = await accounts.unlinkPlayback(); channelPoints.resetSession(); return result; },
     getFollowedChannels: () => twitch.getFollowedChannels(),
     getBrowseCategories: (query, after) =>
       twitch.getBrowseCategories(query, after),
@@ -351,7 +365,7 @@ export const androidPlatform: DesktopApi = {
     signOut: () => accounts.signOut(),
     getFollowedChannels: () => accounts.followed(kick),
     getEmoteSets: (slug) => kick.getEmoteSets(slug),
-    getChatUserProfile: () => unsupported("Kick user profiles"),
+    getChatUserProfile: (channel, login) => kick.getChatUserProfile(channel, login),
     getPinnedChatMessage: (id) => kick.getPinnedChatMessage(id),
     getChatColor: async () => ({ color: "", canUpdate: false }),
     updateChatColor: () => unsupported("Kick account chat colors"),

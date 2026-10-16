@@ -966,3 +966,72 @@
 @media (prefers-reduced-motion: reduce) {
   .android .default-quality-highlight { animation-timing-function: steps(1); }
 }
+
+/* Artwork preloading occupies the same stable 16:9 preview. */
+.mobile-preview > .live-thumbnail { position: absolute; inset: 0; display: block; padding: 0; background: transparent; }
+.mobile-preview > .live-thumbnail img { width: 100%; height: 100%; object-fit: cover; }
+.android .chat-user-card header .chat-user-profile-avatar { flex: 0 0 auto; width: auto; height: auto; padding: 0; border: 0; background: transparent; border-radius: 50%; }
+.android .chat-user-card header .chat-user-profile-name { display: flex; flex: 1; flex-direction: column; align-items: flex-start; min-width: 0; height: auto; width: auto; border: 0; background: transparent; text-align: left; padding: 0; }
+.android .chat-user-profile-name strong, .android .chat-user-profile-name small { max-width: 100%; overflow-wrap: anywhere; }
+.android.oled-mode, .android.oled-mode body, .android.oled-mode #root,
+.android.oled-mode .app-shell, .android.oled-mode .android-mobile-home,
+.android.oled-mode .mobile-topbar, .android.oled-mode .mobile-tabs, .android.oled-mode .mobile-feed,
+.android.oled-mode .mobile-stream, .android.oled-mode .mobile-game,
+.android.oled-mode .mobile-bottom-nav, .android.oled-mode .android-library,
+.android.oled-mode .android-profile, .android.oled-mode .android-profile-header,
+.android.oled-mode .android-downloads, .android.oled-mode .android-viewer-list,
+.android.oled-mode .settings-modal, .android.oled-mode .settings-modal-header,
+.android.oled-mode .settings-sidebar, .android.oled-mode .settings-content,
+.android.oled-mode .settings-section-panel, .android.oled-mode .settings-card,
+.android.oled-mode .chat-panel, .android.oled-mode .native-chat,
+.android.oled-mode .native-chat-input, .android.oled-mode .chat-composer-box,
+.android.oled-mode .chat-composer-editor, .android.oled-mode .chat-user-card,
+.android.oled-mode .chat-user-card header, .android.oled-mode .chat-user-card dl,
+.android.oled-mode .chat-user-message-heading, .android.oled-mode .chat-user-messages,
+.android.oled-mode .android-emote-picker, .android.oled-mode .vw-emote-picker,
+.android.oled-mode .android-stream-menu, .android.oled-mode .android-sheet,
+.android.oled-mode .android-offline-topbar { background: #000; background-image: none; }
+.android.oled-mode .mobile-stream, .android.oled-mode .mobile-game, .android.oled-mode .settings-card { border-color: #33263f; }
+.channel-points-icon { display: inline-block; width: 24px; height: 24px; flex-shrink: 0; background: currentColor; mask: url('../renderer/src/assets/channel-points.png') center / contain no-repeat; -webkit-mask: url('../renderer/src/assets/channel-points.png') center / contain no-repeat; }
+.android .channel-points-button { color: #efedf3; }
+.android[data-android-keyboard-visible="true"] .channel-points-button { display: none; }
+.android-points-overlay { position: fixed; z-index: 270; inset: 0; pointer-events: none; }
+.android-points-sheet { position: absolute; inset: 0 0 0; pointer-events: auto; display: flex; flex-direction: column; background: #16111d; color: #efedf3; border-top: 1px solid #695274; overflow: hidden; }
+.android-points-sheet header { display: flex; align-items: center; min-height: 48px; padding: 0 8px; gap: 6px; border-bottom: 1px solid #403548; flex-shrink: 0; }
+.android-points-sheet header strong { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 16px; }
+.android-points-sheet header button { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; color: inherit; }
+.android-points-scroll { overflow-y: auto; overscroll-behavior: contain; min-height: 0; flex: 1; padding: 12px; }
+.android-points-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px 8px; }
+.android-points-grid > button { display: flex; flex-direction: column; align-items: stretch; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: center; font-size: 13px; line-height: 1.35; gap: 5px; }
+.android-points-grid > button > span:not(.android-points-tile) { overflow-wrap: anywhere; }
+.android-points-tile { display: flex; align-items: center; justify-content: center; position: relative; aspect-ratio: 1; border-radius: 6px; }
+.android-points-tile img { width: 45%; height: 45%; object-fit: contain; margin-bottom: 10px; }
+.android-points-tile strong { position: absolute; bottom: 6px; display: flex; align-items: center; gap: 3px; padding: 2px 5px; border-radius: 4px; font-size: 12px; background: #0009; color: white; }
+.android-points-tile .channel-points-icon { width: 13px; height: 13px; }
+.android-points-grid small, .android-points-reason { color: #e4be74; }
+.android-points-reward-detail { display: flex; align-items: center; justify-content: center; gap: 16px; min-height: 90px; border-radius: 8px; }
+.android-points-reward-detail img { width: 54px; height: 54px; object-fit: contain; }
+.android-points-reward-detail strong { display: flex; align-items: center; gap: 5px; padding: 5px; border-radius: 4px; background: #0009; color: white; }
+.android-points-prompt { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+.android-points-input { display: flex; flex-direction: column; gap: 6px; }
+.android-points-input textarea { resize: vertical; min-height: 90px; width: 100%; box-sizing: border-box; border: 1px solid #a970ff; border-radius: 5px; padding: 10px; background: #100d15; color: #efedf3; font: inherit; font-size: 16px; }
+.android-points-input small { align-self: end; color: #bfb5ca; }
+.android-points-sheet .primary-button { width: 100%; margin: 12px 0; min-height: 44px; white-space: normal; background: #9147ff; color: #fff; }
+.android-points-sheet button:disabled { opacity: .5; }
+.android-points-error { padding: 10px; border-radius: 6px; background: #48212b; color: #ffd9df; overflow-wrap: anywhere; }
+.android-points-sheet footer { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 4px 12px; flex-shrink: 0; border-top: 1px solid #403548; }
+.android-points-sheet footer img { width: 24px; height: 24px; object-fit: contain; }
+.android-points-sheet footer span:last-child { color: #c5b9ce; font-size: 13px; }
+.android.oled-mode .android-points-sheet, .android.oled-mode .android-points-input textarea,
+.android.oled-mode .mobile-bottom, .android.oled-mode .android-library-backdrop,
+.android.oled-mode .android-library > header, .android.oled-mode .android-profile-tabs,
+.android.oled-mode .chat-user-actions, .android.oled-mode .chat-user-badges { background: #000; background-image: none; }
+@media (max-width: 320px) { .android-points-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+
+.android.oled-mode .player-host, .android.oled-mode .native-player-placeholder,
+.android.oled-mode .native-player-notice, .android.oled-mode .android-startup-error,
+.android.oled-mode .settings-main, .android.oled-mode .settings-nav,
+.android.oled-mode .settings-section-heading { background: #000; background-image: none; }
+.android.oled-mode .settings-modal-backdrop.android-settings-page,
+.android.oled-mode .settings-modal-panel, .android.oled-mode .twitch-chat-color-grid,
+.android.oled-mode .settings-modal-search, .android.oled-mode .settings-modal-search input { background: #000; background-image: none; }

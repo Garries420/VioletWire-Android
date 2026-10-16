@@ -128,6 +128,7 @@ import { MultiStreamView } from "./MultiStreamView";
 import { ReactTooltipLayer } from "./ReactTooltipLayer";
 import { ChatBadge } from "./ChatBadge";
 import { ReplyThread } from "./ReplyThread";
+import { AndroidChannelPoints, ChannelPointsIcon } from "../../android/AndroidChannelPoints";
 import { ChatUserCard } from "./ChatUserCard";
 import { ChatUserList } from "./ChatUserList";
 import {
@@ -668,6 +669,8 @@ function visibleStreamTags(tags: string[] | undefined, language: string | undefi
 
 export function App() {
   const isAndroid = window.violetwireRuntime?.platform === "android";
+  const [channelPointsOpen, setChannelPointsOpen] = useState(false);
+  const bonusChannelPoints = usePreference(preferences => preferences.bonusChannelPoints);
   const dataSaver = usePreference(preferences => preferences.dataSaver);
   const adProxyFallback = usePreference(preferences => preferences.adProxyFallback);
   const defaultStreamQuality = usePreference(preferences => preferences.defaultStreamQuality);
@@ -3058,7 +3061,7 @@ export function App() {
   // always close together. Re-register each render to use current navigation.
   useEffect(() => {
     if (isAndroid && !authBusy && kickAuthReady) window.dispatchEvent(new CustomEvent("android-auth-changed", {
-      detail: { twitch: authState.status === "signed-in", kick: kickAccount !== null },
+      detail: { twitch: authState.status === "signed-in", kick: kickAccount !== null, identity: `${authState.account?.id ?? ""}:${kickAccount?.id ?? ""}` },
     }));
   }, [isAndroid, authState.status, kickAccount, authBusy, kickAuthReady]);
   useEffect(() => {
@@ -3102,7 +3105,7 @@ export function App() {
     const watchVod = (event: Event) => { const video = (event as CustomEvent<{ channel: string; displayName: string; title: string }>).detail; void watchChannel(video.channel, { login: video.channel, displayName: video.displayName, profileImageUrl: "", title: video.title, isLive: false }, true); };
     const replayReset = () => resetChatFeed();
     const watchLive = (event: Event) => { void watchChannel((event as CustomEvent<string>).detail, undefined, true); };
-    const openMobileSettings = () => { setSettingsSearch(""); setSettingsOpen(true); };
+    const openMobileSettings = (event: Event) => { setSettingsSearch(""); const section = (event as CustomEvent<{ section?: SettingsSection }>).detail?.section; if (section) setSettingsSection(section); setSettingsOpen(true); };
     const mobileLogin = () => { void beginSignIn(); };
     window.addEventListener("android-twitch-login", mobileLogin);
     window.addEventListener("android-open-settings", openMobileSettings);
@@ -5274,6 +5277,8 @@ export function App() {
                           value={chatInput}
                         />
                         <div className="chat-composer-inline-actions">
+                          {isAndroid && !nativeState.vod && !chatIsKick && !emotePickerOpen && !chatInput.length && activeChannel && <button className="android-composer-action channel-points-button" type="button" aria-label="Channel points rewards"
+                            onPointerDown={event => event.preventDefault()} onClick={() => setChannelPointsOpen(true)}><ChannelPointsIcon /></button>}
                           {isAndroid && chatInput.length > 0 && <button className="android-composer-action" type="button" aria-label="Delete previous emote or character"
                             onPointerDown={(event) => event.preventDefault()} onClick={() => chatInputHost.current?.dispatchEvent(new Event("android-composer-backspace"))}>
                             <AndroidComposerIcon kind="backspace" />
@@ -5568,6 +5573,7 @@ export function App() {
                 </aside>
                 </ChatWindowPortal>
               )}
+              {isAndroid && channelPointsOpen && activeChannel && !activeChannel.startsWith("kick:") && <AndroidChannelPoints key={activeChannel} channel={activeChannel} onClose={() => setChannelPointsOpen(false)} />}
               {isAndroid && chatUserListOpen && activeChannel && <AndroidViewerList
                 key={chatChannel ?? activeChannel} channel={chatChannel ?? activeChannel}
                 entries={chatUserListEntries} onClose={() => setChatUserListOpen(false)} onOpenUser={openChatUserCard}
@@ -6692,6 +6698,11 @@ export function App() {
                     <div className="settings-card settings-card-stack settings-chat-color-card">
                       <TwitchChatColorControls platform={activeChatPlatform} />
                     </div>
+                    {isAndroid && <div className="settings-card">
+                      <div><strong>Bonus Channel Points</strong><span>Automatically claim bonus channel points when available</span></div>
+                      <button aria-label="Bonus Channel Points" aria-pressed={bonusChannelPoints} className={bonusChannelPoints ? "settings-switch active" : "settings-switch"}
+                        onClick={() => { void savePreferences({ bonusChannelPoints: !bonusChannelPoints }); }} type="button"><span /></button>
+                    </div>}
                     {isAndroid && <div className="settings-card">
                       <div>
                         <strong>Emote search</strong>

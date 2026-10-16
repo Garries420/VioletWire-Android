@@ -20,7 +20,7 @@ interface VioletNativePlugin {
   vodDownloadControl(options: { id: string; action: "pause" | "resume" | "delete" }): Promise<void>;
   downloadedChat(options: { id: string; offset: number }): Promise<{ nodes: unknown[] }>;
   downloadedAssets(options: { id: string }): Promise<{ assets?: VodChatAssets; chatState?: string }>;
-  configure(options: { audioCompression: boolean; controlsHideDelay: number; targetOffsetMs: number; dataSaver: boolean; adProxyFallback: boolean }): Promise<void>;
+  configure(options: { oledMode: boolean; audioCompression: boolean; controlsHideDelay: number; targetOffsetMs: number; dataSaver: boolean; adProxyFallback: boolean }): Promise<void>;
   emoteCacheUsage(): Promise<{ bytes: number; emotes: number }>;
   clearEmoteCache(): Promise<void>;
   keyboard(options: { visible: boolean }): Promise<void>;
@@ -37,6 +37,9 @@ interface VioletNativePlugin {
   kickRequest(options: { path: string; method: string; token: string; body?: string }): Promise<{ status: number; data: string }>;
   addListener(event: "keyboardVisibility", listener: (event: { visible: boolean }) => void): Promise<PluginListenerHandle>;
   addListener(event: "authenticationClosed", listener: () => void): Promise<PluginListenerHandle>;
+  startupReady(): Promise<void>;
+  rewardPresentation(options: { active: boolean }): Promise<void>;
+  rewardWebsite(options: { channel: string }): Promise<void>;
   deviceInfo(): Promise<{ television: boolean }>;
   play(options: {
     url: string;
@@ -99,6 +102,7 @@ export const nativeFetch: typeof fetch = async (input, init = {}) => {
   const url = new URL(input instanceof Request ? input.url : input.toString());
   const allowed = [
     "twitch.tv",
+    "twitchcdn.net",
     "kick.com",
     "7tv.io",
     "frankerfacez.com",

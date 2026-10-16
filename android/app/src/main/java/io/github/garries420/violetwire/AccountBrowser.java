@@ -37,6 +37,7 @@ final class AccountBrowser {
     private Runnable cookiePoll;
     private boolean kickReady;
     private TextView status;
+    private String browserHeading;
 
     AccountBrowser(Activity activity) { this.activity = activity; }
     static boolean allowed(String address, String provider) {
@@ -56,7 +57,7 @@ final class AccountBrowser {
         settings.setSupportMultipleWindows(false);
         settings.setMediaPlaybackRequiresUserGesture(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(view, false);
-        view.setBackgroundColor(0xff0e0e10);
+        view.setBackgroundColor(activity.getSharedPreferences("image-cache", android.content.Context.MODE_PRIVATE).getBoolean("oledMode", false) ? Color.BLACK : 0xff0e0e10);
         view.setWebChromeClient(new WebChromeClient());
         view.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -69,10 +70,10 @@ final class AccountBrowser {
             }
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
                 if (view == kickView) kickReady = false;
-                if (view == loginView && status != null) { status.setText("Loading sign-in…"); status.setVisibility(android.view.View.VISIBLE); }
+                if (view == loginView && status != null) { status.setText(browserHeading != null ? "Loading channel points…" : "Loading sign-in…"); status.setVisibility(android.view.View.VISIBLE); }
             }
             @Override public void onPageFinished(WebView view, String url) {
-                if (view == loginView && status != null && status.getText().toString().equals("Loading sign-in…")) status.setVisibility(android.view.View.GONE);
+                if (view == loginView && status != null && (status.getText().toString().equals("Loading sign-in…") || status.getText().toString().equals("Loading channel points…"))) status.setVisibility(android.view.View.GONE);
                 if (view == kickView) kickReady = kickOrigin(url);
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
@@ -82,17 +83,28 @@ final class AccountBrowser {
         return view;
     }
     void open(String provider, String url, boolean capture, Completion done) {
-        close(); completion = done;
+        open(provider, url, capture, done, null);
+    }
+    void open(String provider, String url, boolean capture, Completion done, String headingText) {
+        close(); completion = done; browserHeading = headingText;
         loginView = provider.equals("kick") ? getKickView() : browser("twitch");
+        if (headingText != null) {
+            // Twitch's complete reward center is its desktop popout route.
+            // Preserve this WebView's actual Chrome version while removing the
+            // mobile markers that otherwise redirect it to the mobile site.
+            String agent = WebSettings.getDefaultUserAgent(activity).replaceFirst("\\([^)]*\\)", "(X11; Linux x86_64)")
+                .replace(" Mobile", "").replace(" Version/4.0", "");
+            loginView.getSettings().setUserAgentString(agent);
+        }
         if (loginView.getParent() != null) ((ViewGroup) loginView.getParent()).removeView(loginView);
-        LinearLayout root = new LinearLayout(activity); root.setOrientation(LinearLayout.VERTICAL); root.setBackgroundColor(0xff121015);
+        LinearLayout root = new LinearLayout(activity); root.setOrientation(LinearLayout.VERTICAL); root.setBackgroundColor(activity.getSharedPreferences("image-cache", android.content.Context.MODE_PRIVATE).getBoolean("oledMode", false) ? Color.BLACK : 0xff121015);
         LinearLayout heading = new LinearLayout(activity); heading.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = new TextView(activity); title.setText(provider.equals("kick") ? "Sign in to Kick · id.kick.com" : "Sign in to Twitch · twitch.tv");
+        TextView title = new TextView(activity); title.setText(headingText != null ? headingText : provider.equals("kick") ? "Sign in to Kick · id.kick.com" : "Sign in to Twitch · twitch.tv");
         title.setTextColor(Color.WHITE); title.setTextSize(15); title.setPadding(16, 12, 0, 12);
         heading.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        Button close = new Button(activity); close.setText("Close"); close.setContentDescription("Close sign-in"); close.setOnClickListener(v -> close()); heading.addView(close);
+        Button close = new Button(activity); close.setText("Close"); close.setContentDescription(headingText != null ? "Close channel points" : "Close sign-in"); close.setOnClickListener(v -> close()); heading.addView(close);
         root.addView(heading);
-        status = new TextView(activity); status.setTextColor(0xffc4a7ff); status.setTextSize(13); status.setPadding(16, 8, 16, 8); status.setText("Loading sign-in…"); root.addView(status);
+        status = new TextView(activity); status.setTextColor(0xffc4a7ff); status.setTextSize(13); status.setPadding(16, 8, 16, 8); status.setText(headingText != null ? "Loading channel points…" : "Loading sign-in…"); root.addView(status);
         root.addView(loginView, new LinearLayout.LayoutParams(-1, 0, 1));
         dialog = new Dialog(activity); dialog.setContentView(root); dialog.setOnDismissListener(d -> finish(null));
         dialog.show(); dialog.getWindow().setLayout(-1, -1);

@@ -178,10 +178,10 @@ const subscriptionResponseSchema = z.object({
 });
 const ivrSubageResponseSchema = z.object({
   statusHidden: z.boolean().optional().default(false),
-  meta: z.object({ tier: z.string().optional() }).nullable().optional(),
+  meta: z.object({ tier: z.union([z.string(), z.number()]).transform(String).optional() }).nullable().optional(),
   cumulative: z
     .object({ months: z.number().int().nonnegative().optional().default(0) })
-    .optional(),
+    .nullish(),
   followedAt: z.string().nullable().optional(),
 });
 const clipResponseSchema = z.object({
@@ -301,7 +301,7 @@ class TwitchRequestError extends Error {
 // the app inside that window without a network round trip per Helix request.
 export const VALIDATION_LIFETIME = 55 * 60_000;
 const CHAT_ASSETS_LIFETIME = 10 * 60_000;
-const USER_PROFILE_LIFETIME = 60_000;
+const USER_PROFILE_LIFETIME = 15_000;
 const CHAT_BROADCASTER_LIFETIME = 60 * 60_000;
 const CHAT_BROADCASTER_CACHE_LIMIT = 100;
 const IVR_SUBAGE_TIMEOUT = 5_000;
@@ -348,8 +348,9 @@ export class TwitchService {
 
   constructor(private readonly runtime: ServiceRuntime) {}
 
-  async initialize(): Promise<void> {
+  async initialize(validate = true): Promise<void> {
     this.token = await this.readToken();
+    if (!validate) return;
     if (!this.token) return;
     try {
       await this.ensureAuthenticated();
@@ -563,14 +564,10 @@ export class TwitchService {
 
   async getFollowedChannels(): Promise<FollowedChannel[]> {
     const account = await this.requireAccount();
-    const followed = await this.helixAll(
-      `/channels/followed?user_id=${encodeURIComponent(account.id)}&first=100`,
-      followedResponseSchema,
-    );
-    const live = await this.helixAll(
-      `/streams/followed?user_id=${encodeURIComponent(account.id)}&first=100`,
-      streamsResponseSchema,
-    );
+    const [followed, live] = await Promise.all([
+      this.helixAll(`/channels/followed?user_id=${encodeURIComponent(account.id)}&first=100`, followedResponseSchema),
+      this.helixAll(`/streams/followed?user_id=${encodeURIComponent(account.id)}&first=100`, streamsResponseSchema),
+    ]);
     const liveById = new Map(live.map((stream) => [stream.user_id, stream]));
     const profiles = await this.getUsersByIds(
       followed.map((item) => item.broadcaster_id),
@@ -792,7 +789,10 @@ export class TwitchService {
     const key = `${channel.toLowerCase()}:${login.toLowerCase()}`;
     const cached = this.userProfileCache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.result;
-    const result = this.fetchChatUserProfile(channel, login);
+    const result = this.fetchChatUserProfile(channel, login).then(profile => {
+      if (!profile.subage) this.userProfileCache.delete(key);
+      return profile;
+    });
     this.userProfileCache.set(key, {
       expiresAt: Date.now() + USER_PROFILE_LIFETIME,
       result,
@@ -844,34 +844,19 @@ export class TwitchService {
     // relationship. Do not imply that arbitrary chatter relationships are
     // available through the public API.
     if (this.account?.id === target.id) {
-      const follow = await this.helix(
-        `/channels/followed?user_id=${encodeURIComponent(target.id)}&broadcaster_id=${encodeURIComponent(broadcaster.id)}`,
-        followedResponseSchema,
-      );
-      let subscription: NonNullable<
-        ChatUserProfile["relationship"]
-      >["subscription"];
-      try {
-        const response = await this.helix(
-          `/subscriptions/user?broadcaster_id=${encodeURIComponent(broadcaster.id)}&user_id=${encodeURIComponent(target.id)}`,
-          subscriptionResponseSchema,
-        );
-        const details = response.data[0];
-        subscription = details
-          ? { isSubscribed: true, tier: details.tier, isGift: details.is_gift }
-          : { isSubscribed: false };
-      } catch (error) {
-        if (error instanceof TwitchRequestError && error.status === 404) {
-          subscription = { isSubscribed: false };
-        } else {
-          throw error;
-        }
+      const [follow, subscriptionResult] = await Promise.allSettled([
+        this.helix(`/channels/followed?user_id=${encodeURIComponent(target.id)}&broadcaster_id=${encodeURIComponent(broadcaster.id)}`, followedResponseSchema),
+        this.helix(`/subscriptions/user?broadcaster_id=${encodeURIComponent(broadcaster.id)}&user_id=${encodeURIComponent(target.id)}`, subscriptionResponseSchema),
+      ]);
+      if (follow.status === "fulfilled") {
+        const details = subscriptionResult.status === "fulfilled" ? subscriptionResult.value.data[0] : undefined;
+        const notSubscribed = subscriptionResult.status === "fulfilled" || (subscriptionResult.reason instanceof TwitchRequestError && subscriptionResult.reason.status === 404);
+        profile.relationship = { isFollowing: follow.value.data.length > 0, followedAt: follow.value.data[0]?.followed_at,
+          ...(details ? { subscription: { isSubscribed: true, tier: details.tier, isGift: details.is_gift } }
+            : notSubscribed ? { subscription: { isSubscribed: false } } : {}) };
       }
-      profile.relationship = {
-        isFollowing: follow.data.length > 0,
-        followedAt: follow.data[0]?.followed_at,
-        subscription,
-      };
+      // An optional relationship permission failure must not erase the public
+      // account creation date or IVR details that have already loaded.
     }
     return profile;
   }

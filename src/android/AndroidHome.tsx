@@ -1,6 +1,8 @@
 import { AndroidGameCard } from "./AndroidGameCard";
 import { AndroidStreamMenu } from "./AndroidStreamMenu";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { followingBootstrap, saveFollowingSnapshot, mergeFollowing } from "./following-snapshot";
+import { LiveThumbnail } from "./LiveThumbnail";
 import { finishStartup } from "./startup";
 import { BrowseReturnCache } from "./browse-return-cache";
 import {
@@ -64,7 +66,10 @@ export function AndroidHome() {
   const generation = useRef(0);
   const listRequestPending = useRef(false);
   const viewIdentity = useRef("");
-  const followedSnapshot = useRef<MobileChannel[]>([]);
+  const followedSnapshot = useRef<MobileChannel[]>(followingBootstrap?.channels ?? []);
+  const followingAccount = useRef(followingBootstrap?.accounts);
+  const followingChecked = useRef(0);
+  const followingScroll = useRef(new Map<boolean, number>());
   const feed = useRef<HTMLDivElement>(null);
   const feedScroll = useRef(0);
   const restoreScroll = useRef<number | null>(null);
@@ -73,7 +78,7 @@ export function AndroidHome() {
   }>());
 
   const [chatVisible, setChatVisible] = useState(true);
-  const [accounts, setAccounts] = useState<{ twitch: boolean; kick: boolean } | null>(null);
+  const [accounts, setAccounts] = useState<{ twitch: boolean; kick: boolean; identity?: string } | null>(null);
   const [libraryPage, setLibraryPage] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [page, setPage] = useState<Page>("following"),
@@ -85,7 +90,7 @@ export function AndroidHome() {
     [tab, setTab] = useState("Channels"),
     [history, setHistory] = useState<string[]>([]),
     [category, setCategory] = useState<MobileGame | null>(null),
-    [channels, setChannels] = useState<MobileChannel[]>([]),
+    [channels, setChannels] = useState<MobileChannel[]>(followingBootstrap?.channels.filter(c => c.live) ?? []),
     [categories, setCategories] = useState<MobileGame[]>([]),
     [videos, setVideos] = useState<Vod[]>([]),
     [cursor, setCursor] = useState<string>(),
@@ -123,7 +128,12 @@ export function AndroidHome() {
   useEffect(() => {
     const auth = (event: Event) => {
       const next = (event as CustomEvent<NonNullable<typeof accounts>>).detail;
-      setAccounts(old => old?.twitch === next.twitch && old.kick === next.kick ? old : next);
+      const previous = followingAccount.current;
+      followingAccount.current = next;
+      if (previous && (previous.identity !== next.identity || previous.twitch !== next.twitch || previous.kick !== next.kick)) {
+        followedSnapshot.current = []; followingChecked.current = 0; followingScroll.current.clear();
+      }
+      setAccounts(old => old?.twitch === next.twitch && old.kick === next.kick && old.identity === next.identity ? old : next);
     };
     const route = (event: Event) =>
       setLibraryPage((event as CustomEvent<string | null>).detail);
@@ -272,7 +282,7 @@ export function AndroidHome() {
           ? window.desktop.kick.getFollowedChannels()
           : Promise.resolve([]),
       ]);
-      const items: MobileChannel[] = [];
+      let items: MobileChannel[] = [];
       const failures: string[] = [];
       const t = results[0];
       if (t.status === "fulfilled")
@@ -317,7 +327,12 @@ export function AndroidHome() {
           ...followedSnapshot.current.filter((c) => c.key.startsWith("kick:")),
         );
       }
-      if (request === generation.current) followedSnapshot.current = items;
+      if (request === generation.current) {
+        items = mergeFollowing(followedSnapshot.current, items);
+        followedSnapshot.current = items;
+        followingChecked.current = Date.now();
+        if (accounts) saveFollowingSnapshot(items, accounts);
+      }
       if (failures.length && request === generation.current)
         setError(failures.join(" · "));
       return {
@@ -332,9 +347,18 @@ export function AndroidHome() {
       ? games(provider, after)
       : popular(provider, after, category?.id);
   };
-  useEffect(() => {
+  useLayoutEffect(() => {
     const request = ++generation.current;
     if (!accounts || hidden || (page === "saved" && !search)) return;
+    const isFollowing = !search && page === "following";
+    const hasSnapshot = isFollowing && followedSnapshot.current.length > 0;
+    if (hasSnapshot) {
+      if (viewIdentity.current !== identity) restoreScroll.current = followingScroll.current.get(offline) ?? 0;
+      viewIdentity.current = identity;
+      setChannels(followedSnapshot.current.filter(c => c.live !== offline));
+      setCategories([]); setVideos([]); setCursor(undefined); setBusy(false);
+      if (Date.now() - followingChecked.current < 30000) return;
+    }
     const cached = canRemember ? returnCache.current.restore(identity) : undefined;
     if (cached) {
       viewIdentity.current = identity;
@@ -351,13 +375,15 @@ export function AndroidHome() {
       return () => cancelAnimationFrame(frame);
     }
     // Expired snapshots refetch from page one and begin at the top.
-    restoreScroll.current = 0;
-    feedScroll.current = 0;
+    if (!hasSnapshot && viewIdentity.current !== identity) {
+      restoreScroll.current = 0;
+      feedScroll.current = 0;
+    }
     let cancelled = false;
     void Promise.resolve().then(() => {
       if (cancelled) return;
       listRequestPending.current = true;
-      setBusy(true);
+      setBusy(!hasSnapshot);
       setError("");
       if (viewIdentity.current !== identity || canRemember) {
         viewIdentity.current = identity;
@@ -372,7 +398,9 @@ export function AndroidHome() {
           if (search && tab === "Videos") setVideos(p.items as Vod[]);
           else if (!search && page === "games" && !category)
             setCategories(p.items as MobileGame[]);
-          else setChannels(p.items as MobileChannel[]);
+          else setChannels(old => isFollowing && viewIdentity.current === identity
+            ? mergeFollowing(old, p.items as MobileChannel[]).filter(c => c.live !== offline)
+            : p.items as MobileChannel[]);
           setCursor(p.cursor);
         })
         .catch((e) => {
@@ -391,7 +419,7 @@ export function AndroidHome() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identity, refresh, hidden]);
   useEffect(() => {
-    if (accounts && page === "following" && !busy && viewIdentity.current === identity)
+    if ((followingBootstrap || (accounts && !busy && viewIdentity.current === identity)) && page === "following")
       void finishStartup();
   }, [accounts, page, busy, identity, channels]);
   const more = async () => {
@@ -424,6 +452,7 @@ export function AndroidHome() {
     }
   };
   const navigate = (next: Page) => {
+    if (page === "following") followingScroll.current.set(offline, feed.current?.scrollTop ?? feedScroll.current);
     window.dispatchEvent(new Event("android-close-library"));
     if (hidden) window.dispatchEvent(new Event("android-stream-back"));
     setPage(next);
@@ -533,7 +562,7 @@ export function AndroidHome() {
               key={label}
               onClick={() => {
                 if (search) setTab(label);
-                else if (page === "following") setOffline(label === "Offline");
+                else if (page === "following") { followingScroll.current.set(offline, feed.current?.scrollTop ?? feedScroll.current); setOffline(label === "Offline"); }
                 else {
                   setProvider(label.toLowerCase() as "twitch" | "kick");
                   setCategory(null);
@@ -623,7 +652,7 @@ export function AndroidHome() {
                 <button
                   aria-label="Refresh following"
                   disabled={busy}
-                  onClick={() => setRefresh(r => r + 1)}
+                  onClick={() => { if (!listRequestPending.current) { followingChecked.current = 0; window.dispatchEvent(new Event("android-refresh-thumbnails")); setRefresh(r => r + 1); } }}
                 >
                   <RefreshCw size={18} className={busy ? "spin" : undefined} />
                 </button>
@@ -645,9 +674,7 @@ export function AndroidHome() {
                       onClick={() => watch(c.key)}
                       aria-label={`Watch ${c.name}`}
                     >
-                      {!dataSaver && c.thumbnail && (
-                        <img src={c.thumbnail} alt="" />
-                      )}
+                      {!dataSaver && <LiveThumbnail channel={c.key} src={c.thumbnail} />}
                       <span>{number(c.viewers)} viewers</span>
                       {c.startedAt && (
                         <time>

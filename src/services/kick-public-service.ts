@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ChatUserProfile } from "../shared/twitch";
 import type {
   BrowseCategory,
   BrowsePage,
@@ -77,6 +78,21 @@ export class KickPublicService {
       throw new Error("Kick did not offer a supported public chat connection.");
     }
     return { appKey: transport.credentials.app_key, cluster: transport.credentials.cluster };
+  }
+
+  async getChatUserProfile(channel: string, login: string): Promise<ChatUserProfile> {
+    const data = z.object({ id: z.union([z.string(), z.number()]), username: z.string(),
+      slug: z.string().nullish(), profile_pic: z.string().nullish(), created_at: z.string().nullish(),
+      following_since: z.string().nullish(), subscribed_for: z.number().nonnegative().nullish(),
+      subscription: z.object({ created_at: z.string().nullish(), expires_at: z.string().nullish() }).nullish(),
+    }).parse(await this.requestJson(`/api/v2/channels/${encodeURIComponent(channel)}/users/${encodeURIComponent(login)}`));
+    return { id: String(data.id), login: data.slug ?? data.username.toLowerCase(), displayName: data.username,
+      profileImageUrl: data.profile_pic ?? "", description: "", createdAt: toIsoTimestamp(data.created_at) ?? "",
+      relationship: { isFollowing: !!data.following_since, followedAt: toIsoTimestamp(data.following_since),
+        ...(data.subscribed_for != null ? { subscription: { isSubscribed: data.subscribed_for > 0,
+          months: data.subscribed_for, since: toIsoTimestamp(data.subscription?.created_at),
+          expiresAt: toIsoTimestamp(data.subscription?.expires_at) } } : {}) },
+    };
   }
 
   async getVideos(slug: string): Promise<unknown> {

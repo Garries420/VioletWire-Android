@@ -28,7 +28,7 @@ export function AndroidPlayerChrome() {
         mini ? ".android-floating-video" : ".player-host.hls-surface-host",
       );
       const modal = document.querySelector(
-        '[role="dialog"]:not(.vw-emote-picker), .settings-modal-backdrop, .android-library-backdrop, .top-search-results',
+        '[role="dialog"]:not(.vw-emote-picker):not(.android-points-sheet), .settings-modal-backdrop, .android-library-backdrop, .top-search-results',
       );
       const box = host?.getBoundingClientRect();
       const covered = [...document.querySelectorAll(".vw-emote-picker, .chat-emote-tooltip")].some((overlay) => {

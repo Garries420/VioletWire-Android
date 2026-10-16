@@ -21,6 +21,8 @@ import androidx.core.view.WindowInsetsAnimationCompat;
 import java.util.List;
 
 public class MainActivity extends BridgeActivity {
+    private boolean startupReady;
+    void finishStartup() { startupReady = true; }
     private boolean playerFullscreen;
     private boolean keyboardAnimating;
     private int keyboardBottom;
@@ -30,8 +32,13 @@ public class MainActivity extends BridgeActivity {
     EmoteImageCache emoteCache() { return emoteCache; }
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        long launched = android.os.SystemClock.elapsedRealtime();
+        androidx.core.splashscreen.SplashScreen splash = androidx.core.splashscreen.SplashScreen.installSplashScreen(this);
         registerPlugin(VioletNativePlugin.class);
         super.onCreate(savedInstanceState);
+        splash.setKeepOnScreenCondition(() -> !startupReady && android.os.SystemClock.elapsedRealtime() - launched < 10000);
+        splash.setOnExitAnimationListener(provider -> provider.getView().animate().alpha(0f).setDuration(200).withEndAction(provider::remove).start());
+
         emoteCache = new EmoteImageCache(new File(getCacheDir(), "emote-images"));
         emoteCache.dataSaver(getSharedPreferences("image-cache", MODE_PRIVATE).getBoolean("dataSaver", false));
         // Emotes have their own bounded store. Prevent a second, unmeasurable

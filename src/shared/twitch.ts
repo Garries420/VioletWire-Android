@@ -226,6 +226,9 @@ export interface ChatUserProfile {
       isSubscribed: boolean;
       tier?: string;
       isGift?: boolean;
+      months?: number;
+      since?: string;
+      expiresAt?: string;
     };
   };
 }
