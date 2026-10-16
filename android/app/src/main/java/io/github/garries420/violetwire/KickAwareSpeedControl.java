@@ -11,10 +11,11 @@ import java.util.function.IntSupplier;
 @androidx.annotation.OptIn(markerClass = UnstableApi.class)
 final class KickAwareSpeedControl implements LivePlaybackSpeedControl {
     private final LivePlaybackSpeedControl delegate = LivePlaybackTuning.speedControl();
-    private final BooleanSupplier kick;
-    private final IntSupplier target;
-    private int applied = -1;
+    private volatile BooleanSupplier kick;
+    private volatile IntSupplier target;
+    private volatile int applied = -1;
     KickAwareSpeedControl(BooleanSupplier kick, IntSupplier target) { this.kick = kick; this.target = target; }
+    void bind(BooleanSupplier kick, IntSupplier target) { this.kick = kick; this.target = target; applied = -1; }
     private void configureKick() {
         if (kick.getAsBoolean() && applied != target.getAsInt()) {
             applied = target.getAsInt(); delegate.setLiveConfiguration(LivePlaybackTuning.kickConfiguration(applied));

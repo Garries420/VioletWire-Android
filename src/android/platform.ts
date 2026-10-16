@@ -1,3 +1,4 @@
+import { RewardChat } from "./reward-chat";
 import { KickChannelPointsService } from "./kick-channel-points";
 import { profileUrl, subscriptionUrl } from "./channel-links";
 import { Preferences } from "@capacitor/preferences";
@@ -130,7 +131,7 @@ const thirdParty = new ThirdPartyEmoteService(
   nativeFetch,
 );
 const twitchChat = new TwitchChatService(
-  messages.emit,
+  message => rewardChat.message(message),
   chatState.emit,
   restrictions.emit,
   nativeFetch,
@@ -165,11 +166,14 @@ export function queueOfflineChannel(channel: string) { offlineChannel = channel;
 export const vodPlaybackEvent = event<VodPlayback | null>();
 export const vodToken = () => accounts.playbackToken();
 export const channelPoints = new ChannelPointsService({ fetch: nativeFetch,
+  login: () => accounts.playbackState().login,
+  redemption: (channel, data, immediate) => rewardChat.redemption(channel, data, immediate),
   token: () => accounts.playbackToken(), bonus: () => preferences.bonusChannelPoints,
   notice: (channel, text) => messages.emit({ id: `points-${crypto.randomUUID()}`, channel, login: "violetwire",
     displayName: "VioletWire", color: "#a970ff", text: "", badges: [], sentAt: Date.now(), twitchEmotes: [],
     notice: { type: "other", systemMessage: text } }),
 });
+const rewardChat = new RewardChat({ emit: messages.emit, lookup: (channel, id) => channelPoints.lookup(channel, id) });
 export const kickChannelPoints = new KickChannelPointsService({
   session: () => accounts.kickAccountId(),
   request: (path, method = "GET", body) => accounts.hasKickAccount() ? accounts.request(path, method, body) : nativeFetch(`https://kick.com${path}`, { method }),
@@ -270,13 +274,14 @@ export function resumeChat(): void {
   if (activeVod) { startReplay(); return; }
   if (!activeChannel) return;
   const target = parseChannelKey(activeChannel);
-  if (target.platform === "twitch") twitchChat.connect(target.login);
+  if (target.platform === "twitch") { rewardChat.watch(target.login); twitchChat.connect(target.login); }
   else
     void kickChat
       .connect(target.login)
       .catch(() => chatState.emit("disconnected"));
 }
 export function pauseChat(): void {
+  rewardChat.watch(null);
   stopReplay();
   twitchChat.disconnect();
   kickChat.disconnect();

@@ -47,14 +47,24 @@ export function applyChatMessage(
     return next;
   }
 
-  const existingIndex = current.findIndex((item) => item.id === message.id);
+  const existingIndex = current.findIndex((item) => item.id === message.id || (message.replacesId && item.id === message.replacesId));
   if (existingIndex >= 0) {
     const existing = current[existingIndex];
-    if (!existing.pending || message.pending) return current;
-    const confirmed = current.slice();
-    confirmed[existingIndex] = message;
-    return confirmed;
+    if (existing.pending && !message.pending) {
+      const confirmed = current.slice(); confirmed[existingIndex] = { ...message, reward: message.reward ?? existing.reward }; return confirmed;
+    }
+    if (existing.reward?.id === message.reward?.id && message.reward) {
+      const reward = { ...existing.reward, ...message.reward };
+      const replaceEvent = existing.reward?.eventOnly && !message.reward.eventOnly;
+      if (!replaceEvent && JSON.stringify(reward) === JSON.stringify(existing.reward)) return current;
+      const enriched = current.slice();
+      enriched[existingIndex] = { ...existing, ...(replaceEvent ? message : {}), reward, deleted: existing.deleted, moderation: existing.moderation };
+      return enriched;
+    }
+    return current;
   }
+
+  if (message.metadataOnly) return current;
 
   const last = current.at(-1);
   if (!last || message.sentAt >= last.sentAt) {

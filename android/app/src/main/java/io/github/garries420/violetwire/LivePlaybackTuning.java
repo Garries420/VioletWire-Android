@@ -33,9 +33,10 @@ final class LivePlaybackTuning {
         return position >= 0 && position <= durationMs - 750 ? position : androidx.media3.common.C.TIME_UNSET;
     }
     static int kickTarget(int requestedMs, long segmentMs, int rebufferPenaltyMs) {
-        // Complete chunks cannot sustain a target shorter than their publication
-        // cadence. Leave a second for polling/download jitter on those feeds.
-        return Math.max(requestedMs, (int) Math.min(10000, Math.max(3000, segmentMs + 1000) + rebufferPenaltyMs));
+        // Step-down trials sustain 2.5s on 2s chunks; 2.25s starts stalling.
+        // Longer complete chunks need more room for publication/download jitter.
+        long marginMs = segmentMs <= 2500 ? 500 : 1000;
+        return Math.max(requestedMs, (int) Math.min(10000, Math.max(2500, segmentMs + marginMs) + rebufferPenaltyMs));
     }
     static MediaItem.LiveConfiguration kickConfiguration(int targetMs) {
         return new MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(targetMs)

@@ -1,3 +1,4 @@
+import { RewardHeading } from "./RewardHeading";
 import { memo } from "react";
 import { Reply, Star } from "lucide-react";
 import {
@@ -117,11 +118,13 @@ export const ChatMessageRow = memo(function ChatMessageRow({
       className={[
         "native-chat-message",
         message.firstMessage ? "first-message" : "",
+        message.reward ? "chat-reward-message" : "",
         mentioned ? "mentioned" : "",
         message.deleted && deletedMessageStyle === "dimmed" ? "deleted-dimmed" : "",
       ].filter(Boolean).join(" ")}
       data-chat-message-id={message.id}
     >
+      {message.reward && <RewardHeading reward={message.reward} />}
       {message.firstMessage && (
         <span className="chat-new-chatter-label">New Chatter</span>
       )}
@@ -173,7 +176,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
       >
         {message.displayName}
       </button>
-      {message.action ? " " : <><span className="chat-colon">:</span>{" "}</>}
+      {message.action ? " " : <><span className="chat-colon">{message.text ? ":" : ""}</span>{" "}</>}
       <span
         className="native-chat-text"
         style={
@@ -209,7 +212,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
           </>
         )}
       </span>
-      {!message.deleted && (
+      {!message.deleted && !message.reward?.eventOnly && (
         <button
           aria-label={`Reply to ${message.displayName}`}
           className="chat-message-reply"

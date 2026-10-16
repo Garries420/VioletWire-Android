@@ -1035,3 +1035,5 @@
 .android.oled-mode .settings-modal-backdrop.android-settings-page,
 .android.oled-mode .settings-modal-panel, .android.oled-mode .twitch-chat-color-grid,
 .android.oled-mode .settings-modal-search, .android.oled-mode .settings-modal-search input { background: #000; background-image: none; }
+
+.android .native-chat-message.chat-reward-message { padding-left: 9px; margin: 3px 0; }

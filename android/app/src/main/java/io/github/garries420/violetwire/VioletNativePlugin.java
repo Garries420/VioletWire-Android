@@ -107,6 +107,12 @@ public class VioletNativePlugin extends Plugin {
     private volatile long kickSegmentMs = 4200;
     private volatile int kickRebufferPenaltyMs;
     private boolean kickInitialRecovery;
+    private long kickTransitionUntilMs;
+    private void kickTransition(boolean retry) {
+        if (!isKickLive()) return;
+        kickTransitionUntilMs = android.os.SystemClock.elapsedRealtime() + 5000;
+        if (retry) kickRebufferPenaltyMs = 0;
+    }
     private boolean isKickLive() { return playbackChannel != null && playbackChannel.startsWith("kick:") && !vodPlayback; }
     private int effectiveTargetMs() { return isKickLive() ? LivePlaybackTuning.kickTarget(targetOffsetMs, kickSegmentMs, kickRebufferPenaltyMs) : targetOffsetMs; }
     private int controlsHideDelay = 5000;
@@ -179,6 +185,7 @@ public class VioletNativePlugin extends Plugin {
             if (!adProxyFallback && adFallback != null) { stopAdFallback(); activeProxy = null; if (player != null && source != null) { player.setMediaSource(mediaSource()); applyQuality(); player.prepare(); player.setPlayWhenReady(!userPaused); } }
             if (!vodPlayback && nextOffset != targetOffsetMs && player != null && source != null && playbackError == null) {
                 targetOffsetMs = nextOffset;
+                kickTransition(true);
                 // HlsMediaSource cannot update a changed live configuration in
                 // place. Rebuild with our parser factory so local ad filtering
                 // survives this reconnect instead of using ExoPlayer's default.
@@ -331,12 +338,12 @@ public class VioletNativePlugin extends Plugin {
 
     private void createPlayer() {
         if (player != null) return;
-        player = PlaybackService.getPlayer(getContext());
+        player = PlaybackService.getPlayer(getContext(), this::isKickLive, this::effectiveTargetMs);
         getContext().startService(new Intent(getContext(), PlaybackService.class));
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true);
         player.setHandleAudioBecomingNoisy(true);
         player.setVolume(muted ? 0 : volume);
-        kickSegmentMs = 4200; kickRebufferPenaltyMs = 0; kickInitialRecovery = false;
+        kickSegmentMs = 4200; kickRebufferPenaltyMs = 0; kickInitialRecovery = false; kickTransitionUntilMs = 0;
         droppedFrames = 0; stalls = 0; liveResyncs = 0; lastLiveResyncMs = 0; playedOnce = false; previousPlaybackState = Player.STATE_IDLE; pendingLiveResync = false;
         player.addAnalyticsListener(new androidx.media3.exoplayer.analytics.AnalyticsListener() {
             @Override public void onDroppedVideoFrames(EventTime time, int count, long elapsed) { droppedFrames += count; }
@@ -346,7 +353,10 @@ public class VioletNativePlugin extends Plugin {
             @Override public void onPlaybackStateChanged(int value) {
                 boolean recovered = previousPlaybackState == Player.STATE_BUFFERING && playedOnce;
                 previousPlaybackState = value;
-                if (value == Player.STATE_BUFFERING && playedOnce) {
+                // Quality changes and the one startup catch-up deliberately
+                // replace buffered media. They are not network underruns.
+                boolean expectedKickTransition = isKickLive() && android.os.SystemClock.elapsedRealtime() < kickTransitionUntilMs;
+                if (value == Player.STATE_BUFFERING && playedOnce && !expectedKickTransition) {
                     stalls++;
                     if (isKickLive() && !userPaused && targetOffsetMs <= 3000) {
                         kickRebufferPenaltyMs = Math.min(2000, kickRebufferPenaltyMs + 500);
@@ -525,6 +535,7 @@ public class VioletNativePlugin extends Plugin {
         pendingLiveResync = false; lastLiveResyncMs = now; liveResyncs++;
         // Keep the session. A master reload may start a new preroll, and the
         // default live position may still belong to a stale playlist snapshot.
+        kickTransition(false);
         player.seekTo(position);
     }
 
@@ -534,6 +545,7 @@ public class VioletNativePlugin extends Plugin {
         // playlist again. Keep the player, selected quality, volume and chat.
         playbackError = null;
         userPaused = false;
+        kickTransition(true);
         player.setMediaSource(mediaSource(), true);
         applyQuality();
         player.seekToDefaultPosition();
@@ -561,6 +573,12 @@ public class VioletNativePlugin extends Plugin {
         MediaItem item = new MediaItem.Builder().setUri(activeProxy == null ? source : activeProxy).setMimeType(MimeTypes.APPLICATION_M3U8)
             .setLiveConfiguration(isKickLive() ? LivePlaybackTuning.kickConfiguration(effectiveTargetMs()) : LivePlaybackTuning.configuration(targetOffsetMs)).build();
         return new HlsMediaSource.Factory(new DefaultHttpDataSource.Factory())
+            // Fast Kick polling must not make normal 4.17s chunks look stuck.
+            // With the 1s reload clock, retain 21s of outage tolerance (the
+            // default 3.5 times Kick's ordinary advertised 6s target duration).
+            .setPlaylistTrackerFactory(isKickLive() && targetOffsetMs <= 3000
+                ? (dataSources, errors, parsers, cmcd, executor) -> new androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistTracker(dataSources, errors, parsers, cmcd, 21.0, executor)
+                : androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistTracker.FACTORY)
             .setPlaylistParserFactory(new TwitchPlaylistParserFactory(blocked -> getActivity().runOnUiThread(() -> {
                 if (generation != sourceGeneration || player == null || source == null) return;
                 if (activeProxy != null) {
@@ -755,7 +773,7 @@ public class VioletNativePlugin extends Plugin {
                 case "toggle-mute": muted = !muted; player.setVolume(muted ? 0 : volume); break;
                 case "set-muted": muted = call.getBoolean("muted", false); player.setVolume(muted ? 0 : volume); break;
                 case "set-volume": volume = Math.max(0, Math.min(100, call.getInt("value", 100))) / 100f; player.setVolume(muted ? 0 : volume); break;
-                case "go-live": player.seekToDefaultPosition(); userPaused = false; player.play(); break;
+                case "go-live": kickTransition(false); player.seekToDefaultPosition(); userPaused = false; player.play(); break;
                 case "set-compressor": PlaybackService.compression(call.getBoolean("enabled", false)); if (controls != null) controls.compression(PlaybackService.compression()); break;
                 default: call.reject("Unknown player command"); return;
             }
@@ -814,6 +832,7 @@ public class VioletNativePlugin extends Plugin {
     }
     private void chooseQuality(String value) {
         if(vodPlayback && "best".equals(value))value=availableQualities().isEmpty()?"source":availableQualities().firstKey();
+        if (!value.equals(requestedQuality)) kickTransition(true);
         selectedQuality = value;
         requestedQuality = value;
         if ("chat_only".equals(value) && adFallback != null) {

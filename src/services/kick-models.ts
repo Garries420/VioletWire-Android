@@ -286,6 +286,8 @@ export const kickCategorySchema = z.object({
   banner: kickBannerSchema,
   viewer_count: z.number().nullish(),
   viewers_count: z.number().nullish(),
+  viewers: z.number().nullish(),
+  tags: z.array(z.string()).nullish(),
   livestreams_count: z.number().nullish(),
 });
 
@@ -352,7 +354,8 @@ export function mapKickCategory(
       entry.banner?.url,
       entry.banner?.src,
     ),
-    viewers: entry.viewer_count ?? entry.viewers_count ?? undefined,
+    viewers: entry.viewers ?? entry.viewer_count ?? entry.viewers_count ?? undefined,
     broadcasters: entry.livestreams_count ?? undefined,
+    tags: entry.tags ?? [],
   };
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { KickCategoryCounts } from "./kick-category-count";
 import type { ChatUserProfile } from "../shared/twitch";
 import type {
   BrowseCategory,
@@ -38,6 +39,19 @@ const kickLiveDetails = z.object({
 /** Public Kick provider logic reused from VioletWire; browser session login stays platform-specific. */
 export class KickPublicService {
   constructor(private readonly request: typeof fetch) {}
+  private categoryCounts = new KickCategoryCounts(async (id, cursor, signal) => {
+    const params = new URLSearchParams({ limit: "100", sort: "viewer_count_desc", category_id: id });
+    if (cursor) params.set("after", cursor);
+    const response = await this.request(`${KICK_WEB_ORIGIN}/api/v1/livestreams?${params}`, {
+      headers: { Accept: "application/json", "User-Agent": this.userAgent(), Referer: `${KICK_ORIGIN}/` },
+      signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]),
+    });
+    if (!response.ok) throw new Error(`Kick refused category statistics (${response.status}).`);
+    return response.json();
+  });
+  getCategoryBroadcasters(id: string, signal: AbortSignal) {
+    return this.categoryCounts.get(id, signal);
+  }
   private userAgent(): string {
     return "VioletWire-Android/0.3.4";
   }

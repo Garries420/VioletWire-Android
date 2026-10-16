@@ -19,13 +19,16 @@ public final class PlaybackService extends MediaSessionService {
     private static final NativeAudioCompressor nativeCompressor = new NativeAudioCompressor(PlaybackService::updateCompressorRoute);
     private static void updateCompressorRoute() { compressor.enabled(compressionRequested && !nativeCompressor.active()); }
     private static PlaybackService activeService;
-    private static androidx.media3.exoplayer.DefaultLivePlaybackSpeedControl liveSpeedControl;
+    private static KickAwareSpeedControl liveSpeedControl;
     private MediaSession session;
     private ExoPlayer ownedPlayer;
 
     public static ExoPlayer getPlayer(Context context) {
+        return getPlayer(context, null, null);
+    }
+    static ExoPlayer getPlayer(Context context, java.util.function.BooleanSupplier kick, java.util.function.IntSupplier target) {
         if (sharedPlayer == null) {
-            liveSpeedControl = LivePlaybackTuning.speedControl();
+            liveSpeedControl = new KickAwareSpeedControl(() -> false, () -> 2500);
             androidx.media3.exoplayer.DefaultRenderersFactory renderers = new androidx.media3.exoplayer.DefaultRenderersFactory(context.getApplicationContext()) {
                 @Override protected androidx.media3.exoplayer.audio.AudioSink buildAudioSink(Context ctx, boolean floatOutput, boolean playbackParams) {
                     return new androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(ctx)
@@ -49,6 +52,7 @@ public final class PlaybackService extends MediaSessionService {
             });
             nativeCompressor.session(sharedPlayer.getAudioSessionId());
         }
+        if (kick != null && target != null) liveSpeedControl.bind(kick, target);
         return sharedPlayer;
     }
     static void compression(boolean enabled) { compressionRequested = enabled; nativeCompressor.enabled(enabled); updateCompressorRoute(); }
@@ -70,13 +74,13 @@ public final class PlaybackService extends MediaSessionService {
     @Override public void onTaskRemoved(Intent rootIntent) { stopSelf(); }
     public static void endPlayback(Context context) {
         if (activeService != null) activeService.releasePlayback();
-        else if (sharedPlayer != null) { nativeCompressor.release(); sharedPlayer.release(); sharedPlayer = null; updateCompressorRoute(); }
+        else if (sharedPlayer != null) { nativeCompressor.release(); sharedPlayer.release(); sharedPlayer = null; liveSpeedControl = null; updateCompressorRoute(); }
         context.stopService(new Intent(context, PlaybackService.class));
     }
     private void releasePlayback() {
         if (session != null) { session.release(); session = null; }
         if (ownedPlayer != null) {
-            if (sharedPlayer == ownedPlayer) sharedPlayer = null;
+            if (sharedPlayer == ownedPlayer) { sharedPlayer = null; liveSpeedControl = null; }
             nativeCompressor.release(); ownedPlayer.release(); ownedPlayer = null; updateCompressorRoute();
         }
     }

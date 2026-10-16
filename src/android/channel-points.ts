@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ChatReward } from "../shared/chat";
 import type { NativePlayerState } from "../shared/player";
 
 const CLIENT_ID = "kd1unb4b3q4t58fwlpcbzcbnm76a8fp";
@@ -22,7 +23,7 @@ export interface PointsContext {
   channelId: string; name: string; image?: string; balance: number | null;
   claimId?: string; enabled: boolean; rewards: PointsReward[];
 }
-export function parsePointsContext(data: unknown): PointsContext {
+export function parsePointsContext(data: unknown, includeDisabled = false): PointsContext {
   const parsed = contextSchema.safeParse(data);
   if (!parsed.success) throw new Error("Twitch returned incomplete channel point details. Try again.");
   const channel = parsed.data.community;
@@ -37,7 +38,7 @@ export function parsePointsContext(data: unknown): PointsContext {
         // Bits-priced and unpriced automatic rewards can have a null cost.
         // Validate each entry independently so none can disable earning or the catalog.
         const reward = rewardSchema.safeParse(value);
-        return reward.success && reward.data.isEnabled && (!reward.data.pricingType || reward.data.pricingType === "POINTS")
+        return reward.success && (includeDisabled || reward.data.isEnabled) && (!reward.data.pricingType || reward.data.pricingType === "POINTS")
           ? [{ ...reward.data, automatic }] : [];
       }),
   };
@@ -57,6 +58,8 @@ interface Options {
   bonus: () => boolean;
   notice: (channel: string, text: string) => void;
   socket?: (url: string) => WebSocket;
+  redemption?: (channel: string, data: unknown, immediate?: boolean) => void;
+  login?: () => string | undefined;
 }
 const responseSchema = z.object({ data: z.record(z.string(), z.unknown()).nullish(), errors: z.array(z.object({ message: z.string() })).optional() });
 /** Twitch remains authoritative for balances, eligibility, claims and spending. */
@@ -68,7 +71,7 @@ export class ChannelPointsService {
   private generation = 0;
   private interval?: ReturnType<typeof setInterval>;
   private context?: PointsContext;
-  private identity?: { token: string; id: string };
+  private identity?: { token: string; id: string; login?: string };
   private socket?: WebSocket;
   private reconnect?: ReturnType<typeof setTimeout>;
   private socketWatchdog?: ReturnType<typeof setTimeout>;
@@ -87,7 +90,18 @@ export class ChannelPointsService {
   private spade?: string;
   private tickPending = false;
   private retryAfter = 0;
+  private catalogs = new Map<string, { at: number; rewards: PointsReward[] }>();
+  private catalogPending = new Map<string, Promise<PointsContext>>();
   constructor(private readonly options: Options) {}
+  async lookup(channel: string, id: string): Promise<ChatReward | undefined> {
+    if (!this.catalogs.has(channel) || Date.now() - this.catalogs.get(channel)!.at > 60000) {
+      let pending = this.catalogPending.get(channel);
+      if (!pending) { pending = this.load(channel, true).finally(() => this.catalogPending.delete(channel)); this.catalogPending.set(channel, pending); }
+      await pending;
+    }
+    const reward = this.catalogs.get(channel)?.rewards.find(r => r.id === id);
+    return reward ? { id: reward.id, title: reward.title ?? reward.type?.replace(/_/g, " "), cost: reward.cost, imageUrl: reward.image?.url } : undefined;
+  }
   private async gql(body: unknown, token = this.options.token()) {
     const response = await this.options.fetch("https://gql.twitch.tv/gql", { method: "POST",
       headers: { "Client-ID": CLIENT_ID, "Content-Type": "application/json", ...(token ? { Authorization: `OAuth ${token}` } : {}) },
@@ -101,12 +115,14 @@ export class ChannelPointsService {
     if (!payload.data) throw new Error("Twitch did not return channel points data.");
     return payload.data;
   }
-  async load(login: string): Promise<PointsContext> {
-    const token = this.options.token();
+  async load(login: string, publicOnly = false): Promise<PointsContext> {
+    const token = publicOnly ? "" : this.options.token();
     const data = await this.gql({ operationName: "ChannelPointsContext", variables: { channelLogin: login, includeGoalTypes: ["CREATOR", "BOOST"] },
       extensions: { persistedQuery: { version: 1, sha256Hash: CONTEXT_HASH } } }, token);
     const result = parsePointsContext(data);
-    if (this.channel === login && token === this.options.token()) this.context = result;
+    this.catalogs.set(login, { at: Date.now(), rewards: parsePointsContext(data, true).rewards });
+    if (this.catalogs.size > 20) this.catalogs.delete(this.catalogs.keys().next().value!);
+    if (!publicOnly && this.channel === login && token === this.options.token()) this.context = result;
     return result;
   }
   private refresh() {
@@ -133,27 +149,32 @@ export class ChannelPointsService {
     if (this.identity?.token === token) return this.identity;
     const response = await this.options.fetch("https://id.twitch.tv/oauth2/validate", { headers: { Authorization: `OAuth ${token}` }, signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error("Relink your Twitch website session in Accounts.");
-    const result = z.object({ user_id: z.string().min(1) }).parse(await response.json());
+    const result = z.object({ user_id: z.string().min(1), login: z.string().optional() }).parse(await response.json());
     if (this.options.token() !== token) throw new Error("The Twitch account changed. Try again.");
-    return this.identity = { token, id: result.user_id };
+    return this.identity = { token, id: result.user_id, login: result.login };
   }
   private async tick() {
     const now = Date.now(); const elapsed = Math.min(2000, Math.max(0, now - this.previousTick)); this.previousTick = now;
-    if (!this.channel || !this.options.token() || !this.playing) return;
-    this.watchedMs = Math.min(60000, this.watchedMs + elapsed);
+    if (!this.channel) return;
+    if (this.options.token() && this.playing) this.watchedMs = Math.min(60000, this.watchedMs + elapsed);
     if (this.tickPending || now < this.retryAfter) return;
     this.tickPending = true;
     const generation = this.generation;
     try {
-      const identity = await this.getIdentity();
+      let identity: Awaited<ReturnType<ChannelPointsService["getIdentity"]>> | undefined;
+      let identityError: unknown;
+      try { if (this.options.token()) identity = await this.getIdentity(); }
+      catch (error) { identityError = error; }
       if (generation !== this.generation) return;
       if (!this.context || Math.floor(now / 30000) !== Math.floor((now - elapsed) / 30000)) {
-        const context = await this.refresh();
+        const context = identityError ? await this.load(this.channel!, true) : await this.refresh();
         if (generation !== this.generation) return;
-        if (context.claimId && this.options.bonus()) await this.claimBonus(context, generation);
+        this.context = context;
+        if (identity && this.playing && context.claimId && this.options.bonus()) await this.claimBonus(context, generation);
       }
       if (this.context?.enabled && !this.socket && !this.reconnect) this.connect(identity, generation);
-      if (this.watchedMs >= 60000) {
+      if (identityError) throw identityError;
+      if (identity && this.playing && this.watchedMs >= 60000) {
         this.watchedMs -= 60000;
         await this.minuteWatched(identity, generation);
       }
@@ -214,32 +235,42 @@ export class ChannelPointsService {
       this.pendingBase = this.pendingBonus = false;
     }, 900);
   }
-  private connect(identity: { token: string; id: string }, generation: number) {
+  private connect(identity: { token: string; id: string } | undefined, generation: number) {
     if (!this.context || generation !== this.generation) return;
     const socket = (this.options.socket ?? (url => new WebSocket(url)))(`wss://hermes.twitch.tv/v1?clientId=${CLIENT_ID}`);
     this.socket = socket;
-    const subscription = crypto.randomUUID();
+    const sessionToken = this.options.token();
+    const subscription = crypto.randomUUID(), channelSubscription = crypto.randomUUID();
     const send = (body: Record<string, unknown>) => socket.send(JSON.stringify({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), ...body }));
     const watchdog = (ms = 30000) => { clearTimeout(this.socketWatchdog); this.socketWatchdog = setTimeout(() => socket.close(), ms); };
     socket.onopen = () => watchdog();
     socket.onmessage = event => {
-      if (generation !== this.generation || identity.token !== this.options.token()) { socket.close(); return; }
+      if (generation !== this.generation || sessionToken !== this.options.token()) { socket.close(); return; }
       try {
         const packet = JSON.parse(String(event.data));
         if (packet.type === "welcome") {
           this.retryMs = 1000; watchdog((packet.welcome?.keepaliveSec ?? 15) * 1000 + 5000);
-          send({ type: "authenticate", authenticate: { token: identity.token } });
-          send({ type: "subscribe", subscribe: { id: subscription, type: "pubsub", pubsub: { topic: `community-points-user-v1.${identity.id}` } } });
+          if (identity) {
+            send({ type: "authenticate", authenticate: { token: identity.token } });
+            send({ type: "subscribe", subscribe: { id: subscription, type: "pubsub", pubsub: { topic: `community-points-user-v1.${identity.id}` } } });
+          }
+          send({ type: "subscribe", subscribe: { id: channelSubscription, type: "pubsub", pubsub: { topic: `community-points-channel-v1.${this.context!.channelId}` } } });
         } else if (packet.type === "subscribeResponse") {
-          this.diagnostics.connected = !packet.subscribeResponse?.error;
+          this.diagnostics.connected = packet.subscribeResponse?.result === "ok" && !packet.subscribeResponse?.error;
         } else if (packet.type === "keepalive") watchdog();
         else if (packet.type === "reconnect") socket.close();
         else if (packet.type === "notification") {
           watchdog();
-          if (packet.notification?.subscription?.id !== subscription || typeof packet.notification.pubsub !== "string") return;
+          const source = packet.notification?.subscription?.id;
+          if (![subscription, channelSubscription].includes(source) || typeof packet.notification.pubsub !== "string") return;
           if (packet.id && this.eventIds.has(packet.id)) return;
           if (packet.id) { this.eventIds.add(packet.id); if (this.eventIds.size > 500) this.eventIds.delete(this.eventIds.values().next().value!); }
           const message = JSON.parse(packet.notification.pubsub);
+          if (source === channelSubscription) {
+            const redemption = message.data?.redemption;
+            if (message.type === "reward-redeemed" && String(redemption?.channel_id) === this.context?.channelId && this.channel) this.options.redemption?.(this.channel, redemption);
+            return;
+          }
           const pointsChannel = String(message.data?.balance?.channel_id ?? message.data?.claim?.channel_id ?? message.data?.channel_id ?? "");
           if (pointsChannel !== this.context?.channelId) return;
           if (message.type === "points-earned" && Number(message.data?.point_gain?.total_points ?? 0) > 0) {
@@ -294,6 +325,9 @@ export class ChannelPointsService {
       if (result?.error) { this.redemptionIntent = undefined; throw new Error(`Twitch could not redeem this reward: ${result.error.code.replace(/_/g, " ").toLowerCase()}.`); }
       if (!result?.redemption?.id) throw new Error("Twitch did not confirm the redemption. Check your points balance before trying again.");
       this.redemptionIntent = undefined;
+      this.options.redemption?.(login, { id: result.redemption.id, channel_id: context.channelId, redeemed_at: new Date().toISOString(),
+        user: { login: this.options.login?.() ?? this.identity?.login ?? "" }, user_input: reward.isUserInputRequired ? text : "",
+        reward: { id: reward.id, title: reward.title ?? "Channel points reward", cost: reward.cost } }, true);
       return result.redemption.id;
     } finally { this.redeemed = false; }
   }

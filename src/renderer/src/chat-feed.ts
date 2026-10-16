@@ -171,7 +171,7 @@ export function useChatFeed(
     const paused = !autoScrollRef.current;
     if (paused) {
       const newMessageCount = pending.filter(
-        (message) => !message.historical && !message.deleted,
+        (message) => !message.historical && !message.deleted && !message.metadataOnly,
       ).length;
       if (newMessageCount > 0) {
         setPausedNewCount((current) => Math.min(999, current + newMessageCount));
@@ -181,7 +181,7 @@ export function useChatFeed(
       // the pointer moves between capture and React's layout commit. Anchor
       // only operations that can alter content above the viewport.
       const mayChangeContentAbove =
-        pending.some((message) => message.deleted || message.historical) ||
+        pending.some((message) => message.deleted || message.historical || message.metadataOnly) ||
         messageCount.current + pending.length > CHAT_PAUSED_HARD_LIMIT;
       if (mayChangeContentAbove && messagesHostRef.current) {
         scrollAnchor.current = captureChatScrollAnchor(messagesHostRef.current);
@@ -226,7 +226,7 @@ export function useChatFeed(
           recentChattersDirty.current = true;
         }
       }
-      onIncomingRef.current?.(message);
+      if (!message.metadataOnly) onIncomingRef.current?.(message);
       batch.current.push(message);
       batchTimer.current ??= window.setTimeout(flushBatch, CHAT_BATCH_INTERVAL);
     });

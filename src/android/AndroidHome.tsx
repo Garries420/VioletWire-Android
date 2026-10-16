@@ -1,4 +1,5 @@
 import { AndroidGameCard } from "./AndroidGameCard";
+import { AndroidGameBroadcasters } from "./AndroidGameBroadcasters";
 import { AndroidStreamMenu } from "./AndroidStreamMenu";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { followingBootstrap, saveFollowingSnapshot, mergeFollowing } from "./following-snapshot";
@@ -759,9 +760,7 @@ export function AndroidHome() {
                     {g.viewers !== undefined && (
                       <p>{number(g.viewers)} viewers</p>
                     )}
-                    {g.broadcasters !== undefined && (
-                      <p>{number(g.broadcasters)} broadcasters</p>
-                    )}
+                    <AndroidGameBroadcasters key={refresh} id={g.id} provider={provider} value={g.broadcasters} />
                     <div className="mobile-tags">
                       {g.tags?.slice(0, 4).map((t) => (
                         <span key={t}>{t}</span>

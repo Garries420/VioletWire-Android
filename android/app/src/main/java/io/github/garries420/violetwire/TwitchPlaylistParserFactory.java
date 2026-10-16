@@ -52,13 +52,15 @@ final class TwitchPlaylistParserFactory implements HlsPlaylistParserFactory {
                     if (media.partTargetDurationUs == androidx.media3.common.C.TIME_UNSET) {
                         // Twitch and Kick advertise a 6s upper bound for usual
                         // 2s fragments. Media3 otherwise polls every 6s and starves
-                        // near the live edge. This local scheduling field uses
-                        // half the observed fragment length (at least 1s), so
-                        // reduce stalls caused by the phase of the first poll.
+                        // near the live edge. Poll Twitch at half the observed
+                        // fragment length (at least 1s), and Kick at 1s, to limit
+                        // the wait for each newly published complete chunk.
                         // Segment durations and timestamps remain unchanged.
                         long longest = 0;
                         for (HlsMediaPlaylist.Segment segment : media.segments) longest = Math.max(longest, segment.durationUs);
                         if (longest > 0) {
+                            // Kick's fast reload clock is paired with its own
+                            // playlist-stuck timeout in the source factory.
                             reloadDurationUs = Math.min(reloadDurationUs, twitch ? Math.max(1000000, longest / 2) : 1000000);
                             if (!twitch && segmentObserver != null) segmentObserver.completeSegments(longest / 1000);
                         }

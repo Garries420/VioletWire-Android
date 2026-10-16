@@ -127,6 +127,7 @@ export interface BrowseCategory {
   boxArtUrl: string;
   viewers?: number;
   broadcasters?: number;
+  tags?: string[];
 }
 
 export interface BrowseStream {

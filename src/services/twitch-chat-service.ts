@@ -412,6 +412,10 @@ export class TwitchChatService {
       action = true;
       text = text.slice("\u0001ACTION ".length, -1);
     }
+    const automaticReward = tags["msg-id"] === "highlighted-message"
+      ? { type: "SEND_HIGHLIGHTED_MESSAGE", title: "Highlight My Message" }
+      : tags["msg-id"] === "skip-subs-mode-message"
+        ? { type: "SINGLE_MESSAGE_BYPASS_SUB_MODE", title: "Send a Message in Subscriber-Only Chat" } : undefined;
     return {
       id: tags.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       channel: match[3],
@@ -421,6 +425,8 @@ export class TwitchChatService {
       text,
       ...(action ? { action: true } : {}),
       ...(tags["first-msg"] === "1" ? { firstMessage: true } : {}),
+      ...(tags["custom-reward-id"] ? { reward: { id: tags["custom-reward-id"] } }
+        : automaticReward ? { reward: { id: `${tags["room-id"] || match[3]}:${automaticReward.type}`, title: automaticReward.title } } : {}),
       badges: (tags.badges ?? "").split(",").filter(Boolean),
       sentAt: Number(tags["tmi-sent-ts"]) || Date.now(),
       twitchEmotes: [

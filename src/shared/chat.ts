@@ -23,7 +23,22 @@ export interface TwitchChatEmoteRange {
   kind?: "gif";
 }
 
+export interface ChatReward {
+  id: string;
+  title?: string;
+  cost?: number;
+  imageUrl?: string;
+  redemptionId?: string;
+  /** A provider event can be replaced with the corresponding IRC message. */
+  eventOnly?: boolean;
+}
+
 export interface ChatMessage {
+  reward?: ChatReward;
+  /** Enrich an existing row without adding it again or sounding another alert. */
+  metadataOnly?: boolean;
+  /** Rekey a provider receipt to its authoritative IRC ID for moderation. */
+  replacesId?: string;
   id: string;
   channel: string;
   login: string;

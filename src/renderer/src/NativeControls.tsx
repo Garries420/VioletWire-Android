@@ -1,3 +1,4 @@
+import { RewardHeading } from "./RewardHeading";
 import {
   Fragment,
   memo,
@@ -319,11 +320,13 @@ const OverlayChatMessageRow = memo(function OverlayChatMessageRow({
       className={[
         "native-video-chat-message",
         message.firstMessage ? "first-message" : "",
+        message.reward ? "chat-reward-message" : "",
         mentioned ? "mentioned" : "",
         message.deleted && deletedMessageStyle === "dimmed" ? "deleted-dimmed" : "",
       ].filter(Boolean).join(" ")}
       data-chat-message-id={message.id}
     >
+      {message.reward && <RewardHeading reward={message.reward} />}
       {message.firstMessage && (
         <span className="chat-new-chatter-label">New Chatter</span>
       )}
@@ -375,7 +378,7 @@ const OverlayChatMessageRow = memo(function OverlayChatMessageRow({
       >
         {message.displayName}
       </button>
-      {message.action ? <span> </span> : <span>: </span>}
+      {message.action || !message.text ? <span> </span> : <span>: </span>}
       {message.deleted && deletedMessageStyle === "placeholder" && !deletedRevealed ? (
         <button
           className="deleted-message-toggle"
@@ -409,7 +412,7 @@ const OverlayChatMessageRow = memo(function OverlayChatMessageRow({
           )}
         </>
       )}
-      {!message.deleted && (
+      {!message.deleted && !message.reward?.eventOnly && (
         <button
           aria-label={`Reply to ${message.displayName}`}
           className="native-chat-message-reply"
